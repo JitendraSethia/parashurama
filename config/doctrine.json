@@ -1,0 +1,35 @@
+{
+  "version": "1.0.0",
+  "rules": {
+    "D1": "Detection: full marks within 3 s of the first radar paint, zero at 20 s.",
+    "C1": "Identification: correct = 18 + 12 × confidence; wrong = 10 × (1 − confidence), +5 if friend/foe was right.",
+    "R1": "Friendly identified → hold fire.",
+    "R2": "Bird or clutter → hold; don't waste an effector.",
+    "R3": "Radio-controlled hostile → RF jam first.",
+    "R4": "No radio link, GNSS-guided → GNSS spoof or interceptor.",
+    "R5": "Engage the most urgent threat first.",
+    "R6": "Gun in an urban area → collateral risk.",
+    "R7": "Engage with at least 8 s to impact.",
+    "R8": "A hostile must not reach the asset or observe unchallenged."
+  },
+  "confidence": [
+    { "k": "likely",    "label": "Likely",    "p": 0.6,  "key": "Q" },
+    { "k": "confident", "label": "Confident", "p": 0.8,  "key": "W" },
+    { "k": "certain",   "label": "Certain",   "p": 0.95, "key": "E" }
+  ],
+  "detection": { "points": 30, "fullWithinSec": 3, "zeroAtSec": 20 },
+  "identification": { "points": 30, "correctBase": 18, "correctPerConfidence": 12, "wrongPerUnconfidence": 10, "friendFoeBonus": 5 },
+  "defeat": {
+    "points": 40,
+    "preferred": { "rfLinked": "jam", "gnssOnly": "spoof", "autonomous": "intc" },
+    "tables": {
+      "rfLinked":   { "jam": 40, "intc": 30, "spoof": 30, "gun": 28 },
+      "gnssOnly":   { "spoof": 40, "intc": 36, "gun": 26, "jam": 0 },
+      "autonomous": { "intc": 40, "gun": 30, "jam": 0, "spoof": 0 }
+    },
+    "friendlyHold": 40, "friendlyEngaged": 0,
+    "clutterHold": 40, "clutterEngaged": 10,
+    "hostileHeldButNeutralised": 20,
+    "modifiers": { "urbanGun": -15, "lateEngagementSec": 8, "late": -8, "priority": -5, "priorityRatio": 0.6 }
+  }
+}

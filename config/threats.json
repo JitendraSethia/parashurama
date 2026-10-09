@@ -1,0 +1,44 @@
+{
+  "version": "1.0.0",
+  "order": ["recon", "fpv", "loiter", "swarm", "friendly", "bird"],
+  "echoRcs": { "Very small": 0.008, "Small": 0.02, "Medium": 0.08 },
+  "threats": {
+    "recon": {
+      "label": "Recon quadcopter", "short": "Recon quad", "speed": 12, "alt": [60, 150], "echo": "Small",
+      "rf": "Control link · 2.4 GHz", "rfOn": true, "gnss": true, "friendly": false, "hostile": true,
+      "shape": "quad", "motion": "approachHover", "hoverRangeM": [800, 1100],
+      "behaviour": "Slow, steady approach", "behaviourHover": "Hovering, watching the asset",
+      "deciding": "RF shows a 2.4 GHz control link, and it creeps in slowly, then hovers to watch"
+    },
+    "fpv": {
+      "label": "FPV attack drone", "short": "FPV attack", "speed": 32, "alt": [15, 60], "echo": "Very small",
+      "rf": "Video link · 5.8 GHz", "rfOn": true, "gnss": false, "friendly": false, "hostile": true,
+      "shape": "quad", "motion": "weave", "behaviour": "Fast, low, weaving",
+      "deciding": "RF shows a 5.8 GHz video link, and it flies fast, low and weaving"
+    },
+    "loiter": {
+      "label": "Loitering munition", "short": "Loitering mun.", "speed": 42, "alt": [250, 500], "echo": "Medium",
+      "rf": "No emission", "rfOn": false, "gnss": true, "friendly": false, "hostile": true,
+      "shape": "wing", "motion": "straight", "behaviour": "Fast, straight at the asset",
+      "deciding": "RF shows no emission, it flies fast and straight in, and the camera shows a wing"
+    },
+    "swarm": {
+      "label": "Swarm drone", "short": "Swarm drone", "speed": 20, "alt": [60, 120], "echo": "Very small",
+      "rf": "No emission", "rfOn": false, "gnss": true, "friendly": false, "hostile": true,
+      "shape": "quad", "motion": "swarm", "behaviour": "Moves in formation with {n} others",
+      "deciding": "several small echoes moved together in formation"
+    },
+    "friendly": {
+      "label": "Friendly UAV", "short": "Friendly UAV", "speed": 16, "alt": [150, 300], "echo": "Medium",
+      "rf": "Own-force link", "rfOn": true, "gnss": true, "friendly": true, "hostile": false,
+      "shape": "wing", "motion": "orbit", "orbitRadiusM": [1300, 2100], "behaviour": "Orbits a set route",
+      "deciding": "the friendly check matched a flight plan"
+    },
+    "bird": {
+      "label": "Bird / clutter", "short": "Bird / clutter", "speed": 8, "alt": [20, 180], "echo": "Very small",
+      "rf": "No emission", "rfOn": false, "gnss": false, "friendly": false, "hostile": false,
+      "shape": "bird", "motion": "wander", "behaviour": "Erratic, keeps changing direction",
+      "deciding": "erratic path, tiny echo, no radio emission"
+    }
+  }
+}

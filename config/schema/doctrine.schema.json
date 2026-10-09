@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Doctrine and scoring rules",
+  "type": "object",
+  "required": ["version", "rules", "confidence", "detection", "identification", "defeat"],
+  "additionalProperties": false,
+  "definitions": {
+    "table": { "type": "object", "additionalProperties": { "type": "number", "minimum": 0 } }
+  },
+  "properties": {
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "rules": { "type": "object", "required": ["D1", "C1", "R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8"], "additionalProperties": { "type": "string", "minLength": 1 } },
+    "confidence": {
+      "type": "array", "minItems": 2,
+      "items": { "type": "object", "required": ["k", "label", "p", "key"], "additionalProperties": false,
+        "properties": { "k": { "type": "string" }, "label": { "type": "string" }, "p": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 }, "key": { "type": "string", "pattern": "^[A-Z]$" } } }
+    },
+    "detection": { "type": "object", "required": ["points", "fullWithinSec", "zeroAtSec"], "additionalProperties": false,
+      "properties": { "points": { "type": "number", "minimum": 0 }, "fullWithinSec": { "type": "number", "minimum": 0 }, "zeroAtSec": { "type": "number", "exclusiveMinimum": 0 } } },
+    "identification": { "type": "object", "required": ["points", "correctBase", "correctPerConfidence", "wrongPerUnconfidence", "friendFoeBonus"], "additionalProperties": false,
+      "properties": { "points": { "type": "number" }, "correctBase": { "type": "number" }, "correctPerConfidence": { "type": "number" }, "wrongPerUnconfidence": { "type": "number" }, "friendFoeBonus": { "type": "number" } } },
+    "defeat": {
+      "type": "object",
+      "required": ["points", "preferred", "tables", "friendlyHold", "friendlyEngaged", "clutterHold", "clutterEngaged", "hostileHeldButNeutralised", "modifiers"],
+      "additionalProperties": false,
+      "properties": {
+        "points": { "type": "number", "minimum": 0 },
+        "preferred": { "type": "object", "required": ["rfLinked", "gnssOnly", "autonomous"], "additionalProperties": false,
+          "properties": { "rfLinked": { "type": "string" }, "gnssOnly": { "type": "string" }, "autonomous": { "type": "string" } } },
+        "tables": { "type": "object", "required": ["rfLinked", "gnssOnly", "autonomous"], "additionalProperties": false,
+          "properties": { "rfLinked": { "$ref": "#/definitions/table" }, "gnssOnly": { "$ref": "#/definitions/table" }, "autonomous": { "$ref": "#/definitions/table" } } },
+        "friendlyHold": { "type": "number" }, "friendlyEngaged": { "type": "number" },
+        "clutterHold": { "type": "number" }, "clutterEngaged": { "type": "number" },
+        "hostileHeldButNeutralised": { "type": "number" },
+        "modifiers": { "type": "object", "required": ["urbanGun", "lateEngagementSec", "late", "priority", "priorityRatio"], "additionalProperties": false,
+          "properties": { "urbanGun": { "type": "number", "maximum": 0 }, "lateEngagementSec": { "type": "number", "minimum": 0 }, "late": { "type": "number", "maximum": 0 }, "priority": { "type": "number", "maximum": 0 }, "priorityRatio": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 } } }
+      }
+    }
+  }
+}

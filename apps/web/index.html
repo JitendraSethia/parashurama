@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PARASHURAMA – Counter-Drone Decision Trainer</title>
+<meta name="theme-color" content="#18231D">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+</head>
+<body>
+<header class="top">
+  <div class="mark"><span class="wm">PARASHURAMA</span><span class="sub">Counter-drone decision trainer</span></div>
+  <ol class="phases" aria-label="Drill phase">
+    <li data-p="brief"><b>1</b>Brief</li><li data-p="fight"><b>2</b>Fight</li><li data-p="learn"><b>3</b>Learn</li>
+  </ol>
+  <div class="who"><b id="whoName">Nk Arjun Rao</b><span id="whoUnit">AD Troop 2 · demo trainee</span></div>
+  <span class="sync" id="syncChip" hidden></span>
+  <button class="topBtn" id="instrBtn" hidden>Instructor</button>
+  <button class="topBtn" id="logoutBtn" hidden>Log out</button>
+  <button class="help" id="helpBtn" title="Replay the tour" aria-label="Replay the tour">?</button>
+</header>
+
+<main>
+<!-- ================= BRIEF ================= -->
+<section class="phase" id="brief">
+  <div class="briefGrid">
+    <div class="card mapCard" id="mapCard">
+      <div class="cardHead"><h2>Sand table</h2><span>Intel estimate, not exact positions</span></div>
+      <canvas id="mapBrief" width="1240" height="1100"></canvas>
+      <div class="mapLegend">
+        <span><i style="border-color:var(--ink);border-top-style:dashed"></i>Radar cover 3 km</span>
+        <span><i style="border-color:var(--jam)"></i>Jammer reach</span>
+        <span><i style="border-color:var(--gun)"></i>Gun reach</span>
+        <span><i style="border-color:var(--red);border-top-style:dashed"></i>Likely threat axis</span>
+        <span><i style="border-color:var(--ochre)"></i>Sensor fault</span>
+      </div>
+    </div>
+    <div class="briefSide">
+      <div class="card order" id="orderCard">
+        <div class="drillNo"><b id="drillNo">DRILL 06</b><span id="drillWhen">Generated for Nk Arjun Rao<br>Seed 0000</span></div>
+        <div class="conds" id="conds"></div>
+        <div class="expect" id="expect"></div>
+      </div>
+      <div class="card intent" id="intentCard">
+        <div class="cardHead"><h3>Enemy intent</h3><span id="intentSub">Built from your last 5 drills</span></div>
+        <ul id="intentList"></ul>
+        <div class="tests" id="tests"></div>
+      </div>
+      <div class="card" id="fingerCard">
+        <div class="cardHead"><h3>Your skill fingerprint</h3><span>Mastery, learning model</span></div>
+        <div class="fingerRow"><div id="fingerSvg"></div><div class="mlist" id="mlist"></div></div>
+      </div>
+      <button class="primary" id="beginBtn">Begin drill <kbd>Enter</kbd></button>
+    </div>
+  </div>
+</section>
+
+<!-- ================= FIGHT ================= -->
+<section class="phase" id="fight">
+  <div class="fightGrid">
+    <div class="radarWrap" id="radarWrap">
+      <canvas id="radar" width="1000" height="1000" aria-label="Radar. Click a yellow blip to start a track."></canvas>
+      <div class="hud"><div>Drill time<b class="num" id="clock">0:00</b></div><div>Threats left<b class="num" id="left">0</b></div></div>
+      <div class="hudCtl"><button class="ghostBtn" id="guideBtn">Field guide <kbd>F</kbd></button><button class="ghostBtn" id="soundBtn">Sound on <kbd>M</kbd></button><button class="ghostBtn" id="pauseBtn">Pause <kbd>Space</kbd></button><button class="ghostBtn" id="endBtn">End drill</button></div>
+      <div class="hint" id="hint">Click a yellow blip to start a track</div>
+      <div class="veil" id="veil">PAUSED</div>
+    </div>
+    <aside class="rail">
+      <div id="contactsPanel">
+        <div class="nhead">Contacts <span id="ccount">none yet</span></div>
+        <div id="contacts"></div>
+        <div class="wlegend"><span><i style="background:var(--jam)"></i>J jam</span><span><i style="background:var(--spoof)"></i>S spoof</span><span><i style="background:var(--intc)"></i>I interceptor</span><span><i style="background:var(--gun)"></i>G gun</span><span>next 60 s</span></div>
+      </div>
+      <div id="cluePanel">
+        <div class="nhead"><span id="selTitle" style="color:var(--nt);font-weight:600;text-transform:uppercase;letter-spacing:.05em;font-size:15px">No contact selected</span><span id="selSub"></span></div>
+        <div class="selMeta" id="selMeta">Select a contact to see its clues.</div>
+        <div id="clues"></div>
+        <div class="step" id="idStep">
+          <div class="stepH">1 · Identify <span id="idHint">keys 1–6, then Q W E</span></div>
+          <div id="idBody"></div>
+        </div>
+        <div class="step" id="defStep">
+          <div class="stepH">2 · Decide &amp; defeat <span>only weapons in reach are live</span></div>
+          <div id="defBody"></div>
+        </div>
+      </div>
+    </aside>
+  </div>
+</section>
+
+<!-- ================= LEARN ================= -->
+<section class="phase" id="learn">
+  <div class="learnWrap">
+    <div class="learnTabs"><button class="on" data-t="drill">Your drill</button><button data-t="unit">Unit readiness</button></div>
+    <div id="tabDrill">
+      <div class="hero">
+        <div class="card scoreCard" id="scoreCard"></div>
+        <div class="card" id="lessonsCard"><div class="cardHead"><h3>Three lessons from this drill</h3><span>Biggest point losses, with the clue you missed</span></div><div class="lessons" id="lessons"></div></div>
+      </div>
+      <div class="tapeRow">
+        <div class="card" id="replayCard">
+          <div class="cardHead"><h3>Replay</h3><span>Solid = you · outline = expert ghost</span></div>
+          <canvas id="replay" width="760" height="760"></canvas>
+          <div class="scrub"><button id="playBtn" aria-label="Play replay">▶</button><input type="range" id="scrub" min="0" max="100" value="0" aria-label="Replay time"><span class="num" id="scrubT">0:00</span></div>
+        </div>
+        <div class="card" id="tapeCard">
+          <div class="cardHead"><h3>Drill tape</h3><span id="tapeSub">Every decision on one timeline, against the expert ghost</span></div>
+          <div id="tape"></div>
+          <div class="tkey"><span>◆ track started</span><span>● identified (size = confidence, red = wrong)</span><span>▲ engaged (letter = weapon)</span><span>Outline = expert ghost</span></div>
+        </div>
+      </div>
+      <div class="anaRow">
+        <div class="card ana" id="calCard"><div class="cardHead"><h3>Do you know what you know?</h3><span>Confidence vs accuracy</span></div><div id="calSvg"></div><div class="cap" id="calCap"></div></div>
+        <div class="card ana" id="attCard"><div class="cardHead"><h3>Where you looked</h3><span>Attention vs threat origin</span></div><div id="attSvg"></div><div class="cap" id="attCap"></div></div>
+        <div class="card ana" id="fpCard"><div class="cardHead"><h3>Skill fingerprint</h3><span>Before vs after this drill</span></div><div id="fpSvg"></div><div class="cap" id="fpCap"></div></div>
+      </div>
+      <div class="card audit" id="auditCard">
+        <div class="cardHead"><h3>Doctrine audit</h3><span>Every point cites a rule · rules are editable data</span></div>
+        <div class="wrapx"><table class="doc" id="audit"></table></div>
+        <div class="integrity" id="integrity"></div>
+      </div>
+      <div class="card nextCard" id="nextCard">
+        <div><h3>The enemy has adapted</h3><p id="nextText"></p></div>
+        <button class="primary" id="nextBtn">Next drill <kbd>Enter</kbd></button>
+      </div>
+    </div>
+    <div id="tabUnit" style="display:none">
+      <div class="unitGrid">
+        <div class="card"><div class="cardHead"><h3>Readiness board · AD Troop 2</h3><span>Mastery by condition</span></div>
+          <div class="wrapx" style="padding:0 12px 6px"><table class="board" id="board"></table></div>
+          <div class="note">Green = certified (mastery ≥ 80%), amber = developing (55–80%), red = not yet. Other operators are demo data; your row updates after every drill.</div>
+        </div>
+        <div class="card"><div class="cardHead"><h3>Who can I put on the console?</h3><span>Pick tonight's conditions</span></div>
+          <div class="rosterQ"><div class="seg" id="rosterSeg"></div><div id="rosterAns"></div><div class="rlist" id="rlist"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+
+<div class="tour" id="tour" role="dialog" aria-live="polite">
+  <div class="tourHole" id="tourHole"></div>
+  <div class="tourCard" id="tourCard">
+    <div class="tn" id="tourN"></div>
+    <h3 id="tourT"></h3>
+    <p id="tourP"></p>
+    <div class="tourNav"><div class="dots" id="tourDots"></div><button class="tEnd" id="tourEnd">End tour</button><button class="tNext" id="tourNext">Next</button></div>
+  </div>
+</div>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

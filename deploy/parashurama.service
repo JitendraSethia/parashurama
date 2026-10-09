@@ -1,0 +1,18 @@
+# systemd unit for installs without Docker (Ubuntu/Debian). Copy to /etc/systemd/system/, then:
+#   sudo systemctl daemon-reload && sudo systemctl enable --now parashurama
+[Unit]
+Description=PARASHURAMA counter-drone trainer (unit server)
+After=network-online.target
+[Service]
+Type=simple
+User=parashurama
+WorkingDirectory=/opt/parashurama/apps/server
+Environment=NODE_ENV=production DATA_DIR=/var/lib/parashurama WEB_DIR=/opt/parashurama/apps/web/dist PORT=8443
+Environment=TLS_CERT=/opt/parashurama/deploy/certs/server.crt TLS_KEY=/opt/parashurama/deploy/certs/server.key
+ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning dist/server.mjs
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/parashurama
+[Install]
+WantedBy=multi-user.target

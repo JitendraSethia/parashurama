@@ -1,0 +1,30 @@
+# Unit network deployment. First start prints the admin password in the logs:  docker compose logs server
+# HTTPS: run `bash deploy/make-cert.sh parashurama.local <server-ip>` first; certificates are mounted read-only.
+services:
+  server:
+    build: .
+    image: parashurama:0.6.0
+    restart: unless-stopped
+    ports:
+      - "443:8443"
+    environment:
+      PORT: 8443
+      TLS_CERT: /certs/server.crt
+      TLS_KEY: /certs/server.key
+      UNIT_NAME: "AD Troop 2"
+      # ADMIN_PASSWORD: set this to choose the first admin password instead of a random one
+    volumes:
+      - data:/data
+      - ./deploy/certs:/certs:ro
+  backup:
+    image: parashurama:0.6.0
+    depends_on: [server]
+    restart: unless-stopped
+    environment:
+      DATA_DIR: /data
+    volumes:
+      - data:/data
+    # Consistent SQLite backup once a day; the newest 14 are kept in /data/backups.
+    entrypoint: ["/bin/sh", "-c", "while true; do node --disable-warning=ExperimentalWarning server/cli.mjs backup; sleep 86400; done"]
+volumes:
+  data:

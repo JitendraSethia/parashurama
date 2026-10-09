@@ -1,0 +1,86 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Effectors (weapons)",
+  "type": "object",
+  "required": [
+    "version",
+    "order",
+    "effectors"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "order": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "effectors": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "label",
+          "key",
+          "range",
+          "min",
+          "delay",
+          "color",
+          "affects"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "key": {
+            "type": "string",
+            "pattern": "^[A-Z]$"
+          },
+          "range": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "min": {
+            "type": "number",
+            "minimum": 0
+          },
+          "delay": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 30
+          },
+          "color": {
+            "type": "string"
+          },
+          "affects": {
+            "enum": [
+              "rf",
+              "gnss",
+              "all"
+            ]
+          },
+          "stock": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "areaRadiusM": {
+            "type": "number",
+            "minimum": 0
+          },
+          "collateralUrban": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

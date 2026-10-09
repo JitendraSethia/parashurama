@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Training, simulation and certification settings",
+  "type": "object",
+  "required": ["version", "sim", "clues", "expert", "learning", "certification", "scenario"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "sim": { "type": "object", "additionalProperties": false,
+      "required": ["dt", "sweepSec", "radarRangeM", "assetRadiusM", "maxDrillSec", "cameraRangeM", "radarFaultHalfWidthDeg", "radarFaultFactor", "warmStartSec"],
+      "properties": {
+        "dt": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "sweepSec": { "type": "number", "exclusiveMinimum": 0 },
+        "radarRangeM": { "type": "number", "exclusiveMinimum": 0 },
+        "assetRadiusM": { "type": "number", "exclusiveMinimum": 0 },
+        "maxDrillSec": { "type": "number", "minimum": 30, "maximum": 1800 },
+        "cameraRangeM": { "type": "object", "required": ["day", "night"], "additionalProperties": false, "properties": { "day": { "type": "number", "minimum": 0 }, "night": { "type": "number", "minimum": 0 } } },
+        "radarFaultHalfWidthDeg": { "type": "number", "minimum": 0, "maximum": 180 },
+        "radarFaultFactor": { "type": "number", "minimum": 0, "maximum": 1 },
+        "warmStartSec": { "type": "number", "minimum": 0 } } },
+    "clues": { "type": "object", "additionalProperties": false, "required": ["friendlyCheckSec", "rfSec", "behaviourSec"],
+      "properties": { "friendlyCheckSec": { "type": "number", "minimum": 0 }, "rfSec": { "type": "number", "minimum": 0 }, "behaviourSec": { "type": "number", "minimum": 0 } } },
+    "expert": { "type": "object", "additionalProperties": false, "required": ["trackDelaySec", "identifyDelaySec"],
+      "properties": { "trackDelaySec": { "type": "number", "minimum": 0 }, "identifyDelaySec": { "type": "number", "minimum": 0 } } },
+    "learning": { "type": "object", "additionalProperties": false, "required": ["pInit", "learn", "forget", "slip", "guess", "maxObsPerDrill"],
+      "properties": { "pInit": { "type": "number", "minimum": 0, "maximum": 1 }, "learn": { "type": "number", "minimum": 0, "maximum": 1 }, "forget": { "type": "number", "minimum": 0, "maximum": 1 }, "slip": { "type": "number", "minimum": 0, "maximum": 0.5 }, "guess": { "type": "number", "minimum": 0, "maximum": 0.5 }, "maxObsPerDrill": { "type": "integer", "minimum": 1 } } },
+    "certification": { "type": "object", "additionalProperties": false, "required": ["passMark", "certifiedMastery", "developingMastery"],
+      "properties": { "passMark": { "type": "number", "minimum": 0, "maximum": 100 }, "certifiedMastery": { "type": "number", "minimum": 0, "maximum": 1 }, "developingMastery": { "type": "number", "minimum": 0, "maximum": 1 } } },
+    "scenario": { "type": "object", "additionalProperties": false, "required": ["hostilePool", "swarmType", "friendlyType", "clutterType", "focusType"],
+      "properties": { "hostilePool": { "type": "array", "items": { "type": "string" }, "minItems": 1 }, "swarmType": { "type": "string" }, "friendlyType": { "type": "string" }, "clutterType": { "type": "string" }, "focusType": { "type": "string" } } },
+    "weather": { "type": "object", "description": "Training values: how each weather degrades sensors. radar = detection factor, camera = identification-range factor, noise = image noise.",
+      "additionalProperties": { "type": "object", "additionalProperties": false, "required": ["label", "radar", "camera", "noise"],
+        "properties": { "label": { "type": "string", "minLength": 1 }, "radar": { "type": "number", "minimum": 0.1, "maximum": 1 }, "camera": { "type": "number", "minimum": 0.1, "maximum": 1 }, "noise": { "type": "number", "minimum": 0, "maximum": 1 } } } }
+  }
+}

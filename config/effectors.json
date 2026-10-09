@@ -1,0 +1,50 @@
+{
+  "version": "1.0.0",
+  "order": [
+    "jam",
+    "spoof",
+    "intc",
+    "gun"
+  ],
+  "effectors": {
+    "jam": {
+      "label": "RF jam",
+      "key": "J",
+      "range": 2000,
+      "min": 0,
+      "delay": 2.5,
+      "color": "--jam",
+      "affects": "rf"
+    },
+    "spoof": {
+      "label": "GNSS spoof",
+      "key": "S",
+      "range": 2500,
+      "min": 0,
+      "delay": 3,
+      "color": "--spoof",
+      "affects": "gnss",
+      "areaRadiusM": 450
+    },
+    "intc": {
+      "label": "Interceptor",
+      "key": "I",
+      "range": 2500,
+      "min": 300,
+      "delay": 4,
+      "color": "--intc",
+      "affects": "all",
+      "stock": 4
+    },
+    "gun": {
+      "label": "Gun",
+      "key": "G",
+      "range": 1000,
+      "min": 0,
+      "delay": 1.5,
+      "color": "--gun",
+      "affects": "all",
+      "collateralUrban": true
+    }
+  }
+}

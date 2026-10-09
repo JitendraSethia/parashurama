@@ -1,0 +1,14 @@
+{
+  "name": "@parashurama/engine",
+  "version": "0.6.0",
+  "private": true,
+  "type": "module",
+  "description": "Deterministic counter-drone simulation, doctrine scoring, learning model and enemy AI. No UI, no DOM.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "sideEffects": false,
+  "devDependencies": {
+    "ajv": "^8.17.1"
+  }
+}

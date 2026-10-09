@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Threat library",
+  "type": "object",
+  "required": ["version", "order", "echoRcs", "threats"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "order": { "type": "array", "items": { "type": "string" }, "minItems": 1, "uniqueItems": true },
+    "echoRcs": { "type": "object", "additionalProperties": { "type": "number", "exclusiveMinimum": 0 } },
+    "threats": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["label", "short", "speed", "alt", "echo", "rf", "rfOn", "gnss", "friendly", "hostile", "shape", "motion", "behaviour", "deciding"],
+        "additionalProperties": false,
+        "properties": {
+          "label": { "type": "string", "minLength": 1 },
+          "short": { "type": "string", "minLength": 1, "maxLength": 18 },
+          "speed": { "type": "number", "exclusiveMinimum": 0, "maximum": 400 },
+          "alt": { "type": "array", "items": { "type": "number", "minimum": 0 }, "minItems": 2, "maxItems": 2 },
+          "echo": { "type": "string" },
+          "rf": { "type": "string" },
+          "rfOn": { "type": "boolean" },
+          "gnss": { "type": "boolean" },
+          "friendly": { "type": "boolean" },
+          "hostile": { "type": "boolean" },
+          "shape": { "enum": ["quad", "wing", "bird"] },
+          "motion": { "enum": ["approachHover", "weave", "straight", "swarm", "orbit", "wander"] },
+          "hoverRangeM": { "type": "array", "items": { "type": "number", "minimum": 0 }, "minItems": 2, "maxItems": 2 },
+          "orbitRadiusM": { "type": "array", "items": { "type": "number", "minimum": 0 }, "minItems": 2, "maxItems": 2 },
+          "behaviour": { "type": "string" },
+          "behaviourHover": { "type": "string" },
+          "deciding": { "type": "string" }
+        }
+      }
+    }
+  }
+}
