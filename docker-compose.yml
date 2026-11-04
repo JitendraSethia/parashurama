@@ -1,5 +1,6 @@
-# Unit network deployment. First start prints the admin password in the logs:  docker compose logs server
+# Unit network deployment. There is no login screen: the web app signs in to the built-in admin account automatically.
 # HTTPS: run `bash deploy/make-cert.sh parashurama.local <server-ip>` first; certificates are mounted read-only.
+# Encryption at rest: create the data key once:  mkdir -p deploy/secrets && openssl rand -base64 32 > deploy/secrets/data.key
 services:
   server:
     build: .
@@ -12,7 +13,8 @@ services:
       TLS_CERT: /certs/server.crt
       TLS_KEY: /certs/server.key
       UNIT_NAME: "AD Troop 2"
-      # ADMIN_PASSWORD: set this to choose the first admin password instead of a random one
+      PARASHURAMA_DATA_KEY_FILE: /run/secrets/data_key
+    secrets: [data_key]
     volumes:
       - data:/data
       - ./deploy/certs:/certs:ro
@@ -28,3 +30,6 @@ services:
     entrypoint: ["/bin/sh", "-c", "while true; do node --disable-warning=ExperimentalWarning server/cli.mjs backup; sleep 86400; done"]
 volumes:
   data:
+secrets:
+  data_key:
+    file: ./deploy/secrets/data.key

@@ -2,20 +2,24 @@
   "name": "@parashurama/server",
   "version": "0.6.0",
   "private": true,
+  "license": "Apache-2.0",
   "type": "module",
-  "description": "Unit server: logins and roles, versioned doctrine config, server-side drill verification, readiness board, backups.",
+  "description": "Unit server: name-only sign-in and roles, versioned doctrine config, server-side drill verification, readiness board, backups.",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "node build.mjs",
     "start": "node --disable-warning=ExperimentalWarning dist/server.mjs",
     "user:add": "tsx src/cli.ts user:add",
-    "backup": "tsx src/cli.ts backup"
+    "backup": "tsx src/cli.ts backup",
+    "migrate:encrypt": "tsx src/cli.ts migrate-encrypt"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.1",
-    "@fastify/static": "^8.0.2",
+    "@fastify/static": "^10.1.6",
     "@parashurama/engine": "*",
     "fastify": "^5.1.0"
   },
-  "devDependencies": { "esbuild": "^0.24.0" }
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  }
 }

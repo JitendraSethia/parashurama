@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createEngine, scoreRun, type Spawn } from '../src';
+import { buildScenario, createEngine, expertPolicy, isCleared, needsClearance, observe, runTotal, scoreRun, type Engine, type Spawn } from '../src';
 import { C, baseCfg, controller, drive, single } from './helpers';
 
 const only = (E: ReturnType<typeof single>) => { const s = scoreRun(E); expect(s).toHaveLength(1); return s[0]; };
@@ -149,5 +149,239 @@ describe('golden scoring: every doctrine rule gives the expected points', () => 
     expect(E.contacts.every((c) => c.state === 'neutralised')).toBe(true);
     expect(E.contacts.filter((c) => c.area).length).toBeGreaterThan(0);
     for (const s of sc) expect(s.F).toBe(40);
+  });
+});
+
+describe('golden scoring: military threat library (items 1–2)', () => {
+  it('R4 autonomous: jamming a fibre-optic FPV → defeat 0; interceptor → 40', () => {
+    const jam = single('fibre');
+    drive(jam, controller({ eff: () => 'jam' }), 60);
+    const sj = only(jam);
+    expect(jam.contacts[0].engs[0]).toMatchObject({ eff: 'jam', effective: false });
+    expect(sj.F).toBe(0);
+    expect(sj.rules).toContain('R4');
+    const intc = single('fibre');
+    drive(intc, controller({ eff: () => 'intc' }));
+    const si = only(intc);
+    expect(intc.contacts[0].state).toBe('neutralised');
+    expect(si.F).toBe(40);
+  });
+
+  it('R3: a large military UAV is jammed on its datalink → 40; left circling unchallenged → 0', () => {
+    const jam = single('male');
+    drive(jam, controller({ eff: () => 'jam' }));
+    const s = only(jam);
+    expect(jam.contacts[0].state).toBe('neutralised');
+    expect(s.F).toBe(40);
+    expect(s.rules).toContain('R3');
+    const left = single('male');
+    drive(left, controller({ eff: () => null }), 150);
+    const sl = only(left);
+    expect(left.contacts[0].hover).toBe(true);
+    expect(sl.F).toBe(0);
+    expect(sl.why.join(' ')).toMatch(/watch the asset unchallenged/);
+  });
+});
+
+describe('golden scoring: civil drones (item 3, R9)', () => {
+  it('R9: civil drone held → 40; engaged → 0', () => {
+    const held = single('civil');
+    drive(held, controller({ eff: () => 'hold' }), 30, false);
+    const sh = only(held);
+    expect(sh.F).toBe(40);
+    expect(sh.rules).toContain('R9');
+    expect(sh.why.join(' ')).toMatch(/reported and monitored/);
+    const shot = single('civil');
+    drive(shot, controller({ eff: () => 'intc' }), 40, false);
+    expect(shot.contacts[0].engs[0]?.eff).toBe('intc');
+    const ss = only(shot);
+    expect(ss.F).toBe(0);
+    expect(ss.why.join(' ')).toMatch(/unlawful/);
+  });
+
+  it('urban drills gain one civil drone only when civilType is configured', () => {
+    const noCivil = { ...C, training: { ...C.training, scenario: { ...C.training.scenario, civilType: undefined } } };
+    for (const seed of [3, 17, 99]) {
+      const cfg = baseCfg({ seed, terrain: 'urban' });
+      const before = buildScenario(cfg, noCivil), after = buildScenario(cfg, C);
+      expect(before.some((s) => s.type === 'civil')).toBe(false);
+      expect(after.filter((s) => s.type === 'civil')).toHaveLength(1);
+      expect(after.filter((s) => s.type !== 'civil')).toEqual(before);
+      expect(buildScenario(baseCfg({ seed, terrain: 'rural' }), C)).toEqual(buildScenario(baseCfg({ seed, terrain: 'rural' }), noCivil));
+    }
+  });
+});
+
+describe('golden scoring: probability of kill and re-engagement (item 4, R10)', () => {
+  const withPk = (pk: Record<string, number>) => ({ ...C, effectors: { ...C.effectors, effectors: Object.fromEntries(Object.entries(C.effectors.effectors).map(([k, e]) => [k, { ...e, pk: pk[k] ?? e.pk }])) } });
+  const one = (cfg: typeof C, type: string) => createEngine(baseCfg(), cfg, [{ type, t: 0, brg: 90 }]);
+
+  it('pk 0: the jam is recorded as a miss and the drone stays live', () => {
+    const E = one(withPk({ jam: 0 }), 'recon');
+    drive(E, controller({ eff: () => 'jam' }), 150, false);
+    expect(E.contacts[0].engs[0]).toMatchObject({ eff: 'jam', effective: true, miss: true });
+    expect(E.contacts[0].effectAt).toBeNull();
+  });
+
+  it('R10: a miss followed by a leak with no re-engagement is called out', () => {
+    const E = one(withPk({ jam: 0 }), 'fpv');
+    drive(E, controller({ eff: () => 'jam' }));
+    const s = scoreRun(E)[0];
+    expect(E.contacts[0].state).toBe('leaked');
+    expect(s.F).toBe(0);
+    expect(s.rules).toEqual(expect.arrayContaining(['R8', 'R10']));
+  });
+
+  it('R10: a miss on a drone still live at the end costs −10', () => {
+    const E = one(withPk({ jam: 0 }), 'recon');
+    drive(E, controller({ eff: () => 'jam' }), 150, false);
+    const s = scoreRun(E)[0];
+    expect(E.contacts[0].state).toBe('live');
+    expect(s.Fbase).toBe(40);
+    expect(s.F).toBe(30);
+    expect(s.rules).toContain('R10');
+  });
+
+  it('a miss then a successful re-engagement keeps full credit for the first choice', () => {
+    const E = one(withPk({ jam: 0 }), 'recon');
+    drive(E, (Eng) => { const c = Eng.contacts[0]; const a = controller({ eff: () => 'jam' })(Eng); if (c?.engs[0]?.miss && c.engs.length === 1) a.push({ k: 'eng', cid: c.id, eff: 'intc', tick: Eng.tick }); return a; });
+    const s = scoreRun(E)[0];
+    expect(E.contacts[0].state).toBe('neutralised');
+    expect(s.F).toBe(40);
+    expect(s.rules).not.toContain('R10');
+  });
+
+  it('misses are deterministic: the same seed gives the same misses', () => {
+    const cfg = withPk({ jam: 0.5, spoof: 0.5, intc: 0.5, gun: 0.5 });
+    const run = () => { const E = createEngine(baseCfg({ seed: 4321, difficulty: 5 }), cfg); drive(E, expertPolicy); return E.contacts.flatMap((c) => c.engs.map((e) => `${c.id}:${e.tick}:${e.eff}:${!!e.miss}`)); };
+    const a = run();
+    expect(a.some((x) => x.endsWith(':true'))).toBe(true);
+    expect(run()).toEqual(a);
+  });
+
+  it('the expert ghost re-engages after a miss', () => {
+    const E = one(withPk({ jam: 0 }), 'recon');
+    drive(E, expertPolicy);
+    const c = E.contacts[0];
+    expect(c.engs[0]).toMatchObject({ eff: 'jam', miss: true });
+    expect(c.engs.length).toBeGreaterThan(1);
+    expect(c.state).toBe('neutralised');
+  });
+});
+
+describe('golden scoring: rules of engagement and clearance (item 6, R12)', () => {
+  const peace = (o = {}) => baseCfg({ roe: 'peacetime', ...o });
+  const reqThen = (eff: string) => (Eng: Engine) => {
+    const a = controller({ eff: () => eff, engageIf: (c, E) => isCleared(E, c, eff) })(Eng);
+    for (const c of Eng.contacts) if (c.idTick != null && c.clrReq == null) a.push({ k: 'req', cid: c.id, tick: Eng.tick });
+    return a;
+  };
+
+  it('R12: under peacetime ROE an RF jam without clearance costs −40', () => {
+    const E = createEngine(peace(), C, [{ type: 'recon', t: 0, brg: 90 }]);
+    drive(E, controller({ eff: () => 'jam' }));
+    const s = scoreRun(E)[0];
+    expect(E.contacts[0].engs[0].cleared).toBe(false);
+    expect(E.contacts[0].state).toBe('neutralised'); // the effect still happens; the penalty is in scoring
+    expect(s.Fbase).toBe(40);
+    expect(s.F).toBe(0);
+    expect(s.rules).toContain('R12');
+  });
+
+  it('requesting clearance, waiting, then engaging earns full points', () => {
+    const E = createEngine(peace(), C, [{ type: 'recon', t: 0, brg: 90 }]);
+    drive(E, reqThen('jam'));
+    const c = E.contacts[0], s = scoreRun(E)[0];
+    expect(c.clrReq).not.toBeNull();
+    expect(c.engs[0].tick).toBeGreaterThanOrEqual(c.clrAt!);
+    expect(c.engs[0].cleared).toBe(true);
+    expect(s.F).toBe(40);
+    expect(s.rules).not.toContain('R12');
+  });
+
+  it('tight ROE: jamming needs no clearance, the gun does', () => {
+    const E = createEngine(baseCfg({ roe: 'tight' }), C, [{ type: 'recon', t: 0, brg: 90 }]);
+    expect(needsClearance(E, 'jam')).toBe(false);
+    expect(needsClearance(E, 'gun')).toBe(true);
+  });
+
+  it('drills without roe record no clearance data (old drills unchanged)', () => {
+    const E = single('recon');
+    drive(E, controller({ eff: () => 'jam' }));
+    expect('cleared' in E.contacts[0].engs[0]).toBe(false);
+    expect(E.contacts[0].clrReq).toBeUndefined();
+  });
+
+  it('the expert ghost requests clearance and wins a peacetime drill', () => {
+    const E = createEngine(peace({ seed: 2024, difficulty: 4 }), C);
+    const log = drive(E, expertPolicy);
+    expect(log.some((a) => a.k === 'req')).toBe(true);
+    const sc = scoreRun(E);
+    expect(sc.every((s) => !s.rules.includes('R12'))).toBe(true);
+    expect(runTotal(sc)).toBeGreaterThanOrEqual(C.training.certification.passMark);
+  });
+
+  it('the roe skill is observed only under a restrictive ROE', () => {
+    const E = createEngine(peace(), C, [{ type: 'recon', t: 0, brg: 90 }]);
+    drive(E, controller({ eff: () => 'jam' }));
+    expect(observe(E, scoreRun(E)).roe).toEqual([false]);
+    const F = single('recon');
+    drive(F, controller({ eff: () => 'jam' }));
+    expect(observe(F, scoreRun(F)).roe).toEqual([]);
+  });
+});
+
+describe('golden scoring: EW collateral (item 5, R11)', () => {
+  it('R11: jamming in an EW-restricted area without clearance costs −10', () => {
+    const E = createEngine(baseCfg({ ewRestricted: true }), C, [{ type: 'recon', t: 0, brg: 90 }]);
+    drive(E, controller({ eff: () => 'jam' }));
+    const s = scoreRun(E)[0];
+    expect(s.F).toBe(30);
+    expect(s.rules).toContain('R11');
+  });
+
+  it('R11 does not apply to an interceptor, or to a jam that was cleared under ROE', () => {
+    const intc = createEngine(baseCfg({ ewRestricted: true }), C, [{ type: 'recon', t: 0, brg: 90 }]);
+    drive(intc, controller({ eff: () => 'intc' }));
+    expect(scoreRun(intc)[0].rules).not.toContain('R11');
+    const cleared = createEngine(baseCfg({ ewRestricted: true, roe: 'peacetime' }), C, [{ type: 'recon', t: 0, brg: 90 }]);
+    drive(cleared, (Eng) => {
+      const a = controller({ eff: () => 'jam', engageIf: (c, E) => isCleared(E, c, 'jam') })(Eng);
+      for (const c of Eng.contacts) if (c.idTick != null && c.clrReq == null) a.push({ k: 'req', cid: c.id, tick: Eng.tick });
+      return a;
+    });
+    const s = scoreRun(cleared)[0];
+    expect(s.rules).not.toContain('R11');
+    expect(s.F).toBe(40);
+  });
+
+  it('drills without the flag are unchanged', () => {
+    const E = single('recon');
+    drive(E, controller({ eff: () => 'jam' }));
+    expect(scoreRun(E)[0].F).toBe(40);
+  });
+});
+
+describe('sensor-down fairness flag (item 7)', () => {
+  it('records that the RF clue was unavailable at identification, without changing points', () => {
+    const E = single('recon', { fault: 'rf' });
+    drive(E, controller({ eff: () => 'jam' }));
+    const s = only(E);
+    expect(E.contacts[0].idAvail).toMatchObject({ rf: false, radarOk: true });
+    expect(s.sensorDown).toBe(true);
+    expect(s.why.join(' ')).toMatch(/RF detector was off/);
+    const ok = single('recon');
+    drive(ok, controller({ eff: () => 'jam' }));
+    const so = only(ok);
+    expect(ok.contacts[0].idAvail).toMatchObject({ rf: true, radarOk: true });
+    expect(so.sensorDown).toBeUndefined();
+    expect(s.total).toBe(so.total);
+  });
+
+  it('flags an identification inside the radar fault sector', () => {
+    const E = single('recon', { fault: 'radar', faultSector: 90 }, 90);
+    drive(E, controller({ eff: () => 'jam', ignoreVisibility: true }));
+    expect(E.contacts[0].idAvail?.radarOk).toBe(false);
+    expect(only(E).why.join(' ')).toMatch(/radar fault sector/);
   });
 });

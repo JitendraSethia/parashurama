@@ -3,7 +3,7 @@ import { _setConfig, type Config, type DecisionClass } from './config';
 
 // Kept separate from config.ts so browser bundles that never validate do not ship the schema validator.
 // Validators are pre-compiled at build time (no eval at runtime): see scripts/gen-validators.ts
-const validators = { threats: compiled.threats, effectors: compiled.effectors, doctrine: compiled.doctrine, training: compiled.training };
+const validators = { threats: compiled.threats, effectors: compiled.effectors, doctrine: compiled.doctrine, training: compiled.training, guns: compiled.guns };
 
 export interface ValidationResult { ok: boolean; errors: string[]; }
 
@@ -12,6 +12,7 @@ export function validateConfig(c: Config): ValidationResult {
   const errors: string[] = [];
   (Object.keys(validators) as (keyof typeof validators)[]).forEach((k) => {
     const v = validators[k];
+    if (k === 'guns' && c.guns === undefined) return; // optional file
     if (!v(c[k])) for (const e of v.errors ?? []) errors.push(`${k}.json ${e.instancePath || '/'} ${e.message}`);
   });
   if (errors.length) return { ok: false, errors };
@@ -23,7 +24,11 @@ export function validateConfig(c: Config): ValidationResult {
     if (!(t.echo in c.threats.echoRcs)) errors.push(`threats.json threat "${id}" uses unknown echo size "${t.echo}"`);
     if (t.alt[0] > t.alt[1]) errors.push(`threats.json threat "${id}" has alt min > max`);
     if (t.friendly && t.hostile) errors.push(`threats.json threat "${id}" cannot be both friendly and hostile`);
-    if (t.motion === 'orbit' && t.hostile) errors.push(`threats.json threat "${id}": orbit motion is only for non-hostile contacts`);
+    if (t.civil && (t.hostile || t.friendly)) errors.push(`threats.json threat "${id}": a civil drone cannot be hostile or friendly`);
+    if (t.motion === 'orbit' && t.hostile) errors.push(`threats.json threat "${id}": orbit motion is only for non-hostile contacts (use surveil for hostile drones that circle)`);
+    if (t.motion === 'surveil' && !t.hostile) errors.push(`threats.json threat "${id}": surveil motion is only for hostile contacts`);
+    const or = t.orbitRadiusM;
+    if (t.motion === 'surveil' && or && (or[0] > or[1] || or[1] >= c.training.sim.radarRangeM)) errors.push(`threats.json threat "${id}": orbitRadiusM must be min <= max and inside radar range`);
   }
   for (const id of c.effectors.order) if (!E[id]) errors.push(`effectors.json order lists unknown effector "${id}"`);
   for (const id of Object.keys(E)) {
@@ -38,6 +43,9 @@ export function validateConfig(c: Config): ValidationResult {
     for (const eff of c.effectors.order) if (!(eff in D.tables[cls])) errors.push(`doctrine.json tables.${cls} has no points for effector "${eff}"`);
     for (const v of Object.values(D.tables[cls])) if (v > D.points) errors.push(`doctrine.json tables.${cls} awards more than defeat.points`);
   }
+  for (const [name, prof] of Object.entries(c.doctrine.roe ?? {})) for (const eff of prof?.needsClearance ?? []) if (!E[eff]) errors.push(`doctrine.json roe.${name} names unknown effector "${eff}"`);
+  if (c.doctrine.roe && Object.keys(c.doctrine.roe).length && !c.doctrine.rules.R12) errors.push('doctrine.json needs rule R12 when ROE profiles are defined');
+  if (Object.values(E).some((e) => e.ewCollateral) && !c.doctrine.rules.R11) errors.push('doctrine.json needs rule R11 when an effector has ewCollateral');
   const ps = c.doctrine.confidence.map((x) => x.p);
   if (ps.some((p, i) => i > 0 && p <= ps[i - 1])) errors.push('doctrine.json confidence levels must increase');
   const ck = c.doctrine.confidence.map((x) => x.key);
@@ -47,8 +55,29 @@ export function validateConfig(c: Config): ValidationResult {
   if (d.detection.fullWithinSec >= d.detection.zeroAtSec) errors.push('doctrine.json detection.fullWithinSec must be below zeroAtSec');
   for (const id of [...S.hostilePool, S.swarmType, S.friendlyType, S.clutterType, S.focusType]) if (!T[id]) errors.push(`training.json scenario names unknown threat "${id}"`);
   for (const id of S.hostilePool) if (T[id] && !T[id].hostile) errors.push(`training.json hostilePool contains non-hostile "${id}"`);
+  if (S.civilType && !T[S.civilType]) errors.push(`training.json scenario names unknown civilType "${S.civilType}"`);
+  if (S.civilType && T[S.civilType] && !T[S.civilType].civil) errors.push(`training.json civilType "${S.civilType}" must be a civil threat`);
+  if (Object.values(T).some((t) => t.civil) && !c.doctrine.rules.R9) errors.push('doctrine.json needs rule R9 when the library has a civil drone');
   if (T[S.swarmType] && T[S.swarmType].motion !== 'swarm') errors.push('training.json swarmType must use swarm motion');
+  if (c.training.acoustic) for (const id of c.threats.order) if (T[id] && !T[id].acoustic) errors.push(`threats.json threat "${id}" needs an acoustic signature when training.json fits an acoustic sensor`);
   if (c.training.certification.developingMastery >= c.training.certification.certifiedMastery) errors.push('training.json developingMastery must be below certifiedMastery');
+  const G = c.guns;
+  if (G) {
+    for (const [id, g] of Object.entries(G.guns)) {
+      if (!G.ammo[g.ammo]) errors.push(`guns.json gun "${id}" uses unknown ammo "${g.ammo}"`);
+      if (g.elevDeg[0] >= g.elevDeg[1]) errors.push(`guns.json gun "${id}" has elevDeg min >= max`);
+      if (g.sight === 'radar' && !g.radar) errors.push(`guns.json gun "${id}" has a radar sight but no radar block`);
+      if (g.sight === 'eo' && !g.eo) errors.push(`guns.json gun "${id}" has an electro-optical sight but no eo block`);
+    }
+    for (const [id, a] of Object.entries(G.ammo)) if (a.cdMach.some((p, i) => i > 0 && p[0] <= a.cdMach[i - 1][0])) errors.push(`guns.json ammo "${id}" cdMach Mach numbers must increase`);
+    for (const size of Object.keys(c.threats.echoRcs)) if (!(size in G.targets.hitRadiusM) || !(size in G.targets.hitsToKill)) errors.push(`guns.json targets need hitRadiusM and hitsToKill for echo size "${size}"`);
+    if (G.detect) {
+      for (const size of Object.keys(c.threats.echoRcs)) if (!(size in G.detect.visualM) || !(size in G.detect.sensorBySize)) errors.push(`guns.json detect needs visualM and sensorBySize for echo size "${size}"`);
+      for (const r of ['V1', 'V2', 'V3']) if (!c.doctrine.rules[r]) errors.push(`doctrine.json needs rule ${r} for the field drill`);
+    }
+    if (G.procedure.burstMin > G.procedure.burstMax) errors.push('guns.json procedure burstMin must not exceed burstMax');
+    for (const r of ['G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G8', 'G9', 'G10', 'G11', 'G12', 'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', ...(G.lfx ? ['L1', 'L2', 'L3'] : []), ...(G.uav ? ['U1', 'U2', 'U3', 'U4', 'U5', 'U6', 'U7', 'U8', 'U9'] : [])]) if (!c.doctrine.rules[r]) errors.push(`doctrine.json needs rule ${r} for the gun detachment mode`);
+  }
   return { ok: errors.length === 0, errors };
 }
 

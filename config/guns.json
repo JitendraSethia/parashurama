@@ -1,0 +1,145 @@
+{
+  "version": "1.3.0",
+  "note": "Training values from public nominal figures, not equipment specifications. DSSC to confirm.",
+  "ammo": {
+    "hei": {
+      "label": "HEI-T 23 mm", "massKg": 0.188, "caliberM": 0.023, "mv": 980, "mvSd": 3, "mvPerDegC": 0.9,
+      "tracerSec": 5, "selfDestructSec": 9, "sdFailP": 0.03,
+      "cdMach": [[0, 0.16], [0.7, 0.16], [0.9, 0.2], [1.0, 0.36], [1.1, 0.4], [1.3, 0.38], [1.6, 0.34], [2.0, 0.3], [2.5, 0.27], [3.2, 0.25]]
+    },
+    "api": {
+      "label": "API-T 23 mm", "massKg": 0.19, "caliberM": 0.023, "mv": 970, "mvSd": 3, "mvPerDegC": 0.9,
+      "tracerSec": 5, "selfDestructSec": 0, "sdFailP": 0,
+      "cdMach": [[0, 0.15], [0.7, 0.15], [0.9, 0.19], [1.0, 0.34], [1.1, 0.38], [1.3, 0.36], [1.6, 0.32], [2.0, 0.29], [2.5, 0.26], [3.2, 0.24]]
+    },
+    "pfhe40": {
+      "label": "40 mm pre-fragmented HE, proximity fuze (training model)", "massKg": 0.88, "caliberM": 0.04, "mv": 1025, "mvSd": 4, "mvPerDegC": 0.9,
+      "tracerSec": 7, "selfDestructSec": 10, "sdFailP": 0.02, "proxM": 3,
+      "cdMach": [[0, 0.14], [0.7, 0.14], [0.9, 0.18], [1.0, 0.31], [1.1, 0.35], [1.3, 0.33], [1.6, 0.3], [2.0, 0.27], [2.5, 0.24], [3.2, 0.22]]
+    }
+  },
+  "guns": {
+    "zu23": {
+      "label": "ZU-23-2 (towed, manual sight)", "short": "ZU-23-2", "sight": "manual",
+      "barrels": 2, "rpmPerBarrel": 1800, "beltRounds": 50, "ammo": "hei",
+      "slewDegS": { "az": 40, "el": 30 }, "elevDeg": [-10, 90], "effRangeM": 2500, "dispMil": 1.6,
+      "heatPerRound": 1, "coolPerSec": 4, "heatLimit": 220, "stoppageP": 0.004,
+      "sightFovDeg": 12,
+      "reload": [
+        { "id": "cover", "label": "Open the feed cover", "sec": 1.5 },
+        { "id": "box", "label": "Fit a full ammunition box", "sec": 3 },
+        { "id": "belt", "label": "Lay the belt on the feed tray", "sec": 3 },
+        { "id": "close", "label": "Close the feed cover", "sec": 1 },
+        { "id": "cock", "label": "Cock the gun (charging handle)", "sec": 2 }
+      ]
+    },
+    "zu23m": {
+      "label": "ZU-23-2 upgraded (EO/IR, laser rangefinder, digital fire control)", "short": "ZU-23-2 EO", "sight": "eo", "model": "zu23",
+      "barrels": 2, "rpmPerBarrel": 1800, "beltRounds": 50, "ammo": "hei",
+      "slewDegS": { "az": 40, "el": 30 }, "elevDeg": [-10, 90], "effRangeM": 2500, "dispMil": 1.6,
+      "heatPerRound": 1, "coolPerSec": 4, "heatLimit": 220, "stoppageP": 0.004,
+      "sightFovDeg": 8,
+      "eo": { "acquireRangeM": 5500, "lockSec": 2, "trackNoiseMil": 0.35, "faultP": 0 },
+      "reload": [
+        { "id": "cover", "label": "Open the feed cover", "sec": 1.5 },
+        { "id": "box", "label": "Fit a full ammunition box", "sec": 3 },
+        { "id": "belt", "label": "Lay the belt on the feed tray", "sec": 3 },
+        { "id": "close", "label": "Close the feed cover", "sec": 1 },
+        { "id": "cock", "label": "Cock the gun (charging handle)", "sec": 2 }
+      ]
+    },
+    "zsu234": {
+      "label": "ZSU-23-4 (radar fire control)", "short": "ZSU-23-4", "sight": "radar",
+      "barrels": 4, "rpmPerBarrel": 900, "beltRounds": 500, "ammo": "hei",
+      "slewDegS": { "az": 70, "el": 60 }, "elevDeg": [-4, 85], "effRangeM": 2500, "dispMil": 1.1,
+      "heatPerRound": 1, "coolPerSec": 6, "heatLimit": 400, "stoppageP": 0.002,
+      "sightFovDeg": 12,
+      "radar": { "acquireRangeM": 6000, "lockSec": 3, "trackNoiseMil": 0.4, "faultP": 0 },
+      "reload": [
+        { "id": "box", "label": "Switch to the next ammunition box", "sec": 4 },
+        { "id": "feed", "label": "Feed the belts to the guns", "sec": 4 },
+        { "id": "charge", "label": "Charge the guns", "sec": 2 }
+      ]
+    },
+    "l70": {
+      "label": "40 mm L/70 (towed, thermal sight and laser rangefinder)", "short": "L70", "sight": "eo",
+      "barrels": 1, "rpmPerBarrel": 300, "beltRounds": 4, "ammo": "pfhe40",
+      "slewDegS": { "az": 80, "el": 45 }, "elevDeg": [-4, 90], "effRangeM": 4000, "dispMil": 1.0,
+      "heatPerRound": 2, "coolPerSec": 2, "heatLimit": 200, "stoppageP": 0.003,
+      "sightFovDeg": 8,
+      "eo": { "acquireRangeM": 5000, "lockSec": 2, "trackNoiseMil": 0.3, "faultP": 0 },
+      "reload": [
+        { "id": "clip", "label": "Loader drops a 4-round clip into the feed guides (the rammer chambers the rounds)", "sec": 2.5 }
+      ]
+    }
+  },
+  "targets": {
+    "hitRadiusM": { "Very small": 0.25, "Small": 0.4, "Medium": 0.9, "Large": 2.5 },
+    "hitsToKill": { "Very small": 1, "Small": 1, "Medium": 2, "Large": 4 },
+    "engageRangeM": { "Very small": 800, "Small": 1200, "Medium": 2000, "Large": 2500 }
+  },
+  "manualSight": { "speedStepMs": 5, "courseStepDeg": 15, "rangeStepM": 100 },
+  "procedure": {
+    "ackSec": 3, "loadSec": 12, "layWithinSec": 10, "firstBurstWithinSec": 25,
+    "burstMin": 5, "burstMax": 15, "safeWithinSec": 15, "stoppageClearSec": 6, "barrelChangeSec": 20,
+    "standToSec": { "white": 20, "yellow": 8, "red": 0 }, "killReportSec": 8
+  },
+  "met": { "stdTempC": 15, "stdPressureHpa": 1013.25, "latitudeDeg": 26 },
+  "detect": {
+    "note": "Detection model for the field drill. Training values, not sensor specifications. DSSC to confirm.",
+    "visualM": { "Very small": 900, "Small": 1500, "Medium": 3000, "Large": 6000 },
+    "night": 0.4, "urban": 0.85,
+    "sensorBySize": { "Very small": 0.35, "Small": 0.55, "Medium": 1, "Large": 1 },
+    "spotWithinSec": 4, "idWithinSec": 6
+  },
+  "lfx": {
+    "note": "Live-fire drill checklists, reconstructed from the public brief. A draft for DSSC / AAD College to confirm.",
+    "gunChecks": [
+      { "id": "barrel", "label": "Barrels and flash hiders inspected, bores clear" },
+      { "id": "mount", "label": "Mounting, traverse and elevation checked" },
+      { "id": "level", "label": "Gun levelled" },
+      { "id": "sight", "label": "Sight zeroed (boresight checked)" },
+      { "id": "ammo", "label": "Ammunition issued and counted" }
+    ],
+    "rangeChecks": [
+      { "id": "redZone", "label": "Danger area clear of people and vehicles" },
+      { "id": "flags", "label": "Range flags up, sentries posted" },
+      { "id": "met", "label": "Met message received (wind, temperature, pressure)" },
+      { "id": "airspace", "label": "Airspace clear; own-drone and flight schedule checked" },
+      { "id": "brief", "label": "Joint pre-brief done: ROE, safe arcs, abort procedure" }
+    ],
+    "checkSec": 1, "uxoSearchSec": 2
+  },
+  "uav": {
+    "note": "UAV ground-control-station strike drill (extension beyond the counter-drone PS). Training model, not any real UAV or munition.",
+    "label": "Tactical strike UAV (training model)", "speed": 40, "altM": 300, "turnDegS": 12,
+    "munition": { "label": "Free-fall practice bomblet (training)", "massKg": 2.5, "caliberM": 0.08, "cdMach": [[0, 0.32], [0.8, 0.36], [1.2, 0.5], [2, 0.45]], "lethalRadiusM": 8 },
+    "corridorHalfWidthM": 300, "gimbalFovDeg": 8, "gimbalSlewDegS": 20, "clearanceSec": 4, "takeoffSec": 6, "landSec": 8,
+    "checks": [
+      { "id": "link", "label": "C2 link and encrypted video feeds checked" },
+      { "id": "failsafe", "label": "Failsafe (return to home) set and confirmed" },
+      { "id": "fence", "label": "Geofence and safe corridors loaded" },
+      { "id": "payload", "label": "Payload fitted; armament crew reports safety pin out" },
+      { "id": "brief", "label": "Joint pre-brief: target, ROE, met, abort procedure" }
+    ]
+  },
+  "orders": {
+    "note": "Placeholder words of command in standard air-defence fire-control style. Replace with the unit's exact drill wording (DSSC / AAD College).",
+    "rangeClear": "RANGE CLEAR",
+    "alert": "DETACHMENT, ALERT",
+    "target": "TARGET, bearing {brg}, range {rng}, height {hgt}, {type}",
+    "method": "SHORT BURSTS",
+    "engage": "FIRE",
+    "hold": "HOLD FIRE",
+    "cease": "CEASE FIRE",
+    "unload": "UNLOAD, MAKE SAFE",
+    "ack": "ROGER",
+    "ready": "READY",
+    "onTarget": "ON",
+    "stoppage": "STOPPAGE",
+    "reportSafe": "GUN CLEAR, {n} ROUNDS EXPENDED",
+    "killDestroyed": "TARGET DESTROYED",
+    "killNoEffect": "NO EFFECT, RE-ENGAGING",
+    "rangeGreen": "RANGE GREEN"
+  }
+}

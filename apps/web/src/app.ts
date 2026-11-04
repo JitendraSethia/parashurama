@@ -1,14 +1,18 @@
 import {
-  avg, brgOf, buildScenario, calStats, chainHash, clamp, createEngine, decisionClass, demoHistory, expertPolicy, FAULT_LABEL,
-  fmtTime, inReach, isDone, mastery, mulberry, observe, planNext, runSim, runTotal, scoreRun, sectorOf, SKILLS, step, sumCal,
-  tti, visibleBlip, windOf, cameraRange, weatherFx, WEATHER_LABEL,
+  avg, brgOf, buildScenario, calStats, chainHash, clamp, classificationStats, drillsToCsv, createEngine, decisionClass, demoHistory, expertPolicy, FAULT_LABEL,
+  fmtTime, inReach, isCleared, isDone, needsClearance, mastery, mulberry, observe, planNext, runSim, runTotal, scoreRun, sectorOf, SKILLS, step, sumCal,
+  tti, visibleBlip, windOf, cameraRange, weatherFx, WEATHER_LABEL, acousticClue,
 } from '@parashurama/engine';
 import { $, $$, cap, cssv } from './dom';
 import { C, TYPES, ORDER, EFF, EFF_ORDER, CONF, RULES, SIM, DT, SWEEP, RMAX, BASE, MAXT, T, confLabel, CERT } from './cfg';
 import { drawPaper, symPath, kindOfCls, symSvg } from './paper';
 import { radarChart } from './charts';
+import { toast } from './toast';
 
 const fmt = fmtTime;
+// Threat type of an identification, including the operator's explicit "Unknown".
+const TY=(k:any):any=>TYPES[k]||{label:'Unknown',short:'Unknown',hostile:false,friendly:false,rfOn:false,gnss:false};
+const isUnk=(k:any)=>k==='unknown';
 // ---- extension points: feature modules subscribe here instead of editing this file ----
 type Handler = (arg?: any) => void;
 const listeners: Record<string, Handler[]> = {};
@@ -27,7 +31,7 @@ function loadDB(){
 }
 function saveDB(){try{localStorage.setItem(STORE,JSON.stringify({H:DB.H.map(s=>({...s,actions:undefined})),tourDone:DB.tourDone,academy:DB.academy,settings:DB.settings}));}catch(e){}}
 const DB=loadDB();DB.academy=DB.academy||{done:[]};DB.settings=DB.settings||{sound:'sound'};
-let plan=planNext(DB.H);
+let plan=planNext(DB.H,undefined,hooks.planOpts);
 let phase='brief';
 const ABBR={north:'N','north-east':'NE',east:'E','south-east':'SE',south:'S','south-west':'SW',west:'W','north-west':'NW'};
 
@@ -37,10 +41,11 @@ function renderBrief(){
   $('#drillNo').textContent='DRILL '+String(c.drill).padStart(2,'0');
   $('#drillWhen').innerHTML=`Built for ${TRAINEE.name}<br>Seed ${c.seed}`;
   const tested=plan.tests.join(' ');
-  const cards=[['Time',c.time==='night'?'Night':'Day',c.time==='night'],['Terrain',cap(c.terrain),false],['Sensors',c.fault==='radar'?`Radar fault ${ABBR[windOf(c.faultSector)]}`:FAULT_LABEL[c.fault],c.fault!=='none'],['Weather',WEATHER_LABEL[c.weather||'clear'],(c.weather||'clear')!=='clear'],['Attack',c.pattern==='swarm'?'Swarm raid':'Mixed raid',c.pattern==='swarm']];
+  const cards=[['Time',c.time==='night'?'Night':'Day',c.time==='night'],['Terrain',cap(c.terrain),false],['Sensors',c.fault==='radar'?`Radar fault ${ABBR[windOf(c.faultSector)]}`:FAULT_LABEL[c.fault],c.fault!=='none'],['Weather',WEATHER_LABEL[c.weather||'clear'],(c.weather||'clear')!=='clear'],['Attack',c.pattern==='swarm'?'Swarm raid':'Mixed raid',c.pattern==='swarm'],...(c.wcs?[['Weapons',{hold:'HOLD (self-defence)',tight:'TIGHT (hostile ID only)',free:'FREE'}[c.wcs],c.wcs!=='free']]:[]),...(c.safeArcs?[['Safe arc',c.safeArcs.map(([x,y])=>`${String(x).padStart(3,'0')}–${String(y).padStart(3,'0')}°`).join(', '),true]]:[]),...(c.killAssess?[['Kill reports','Report every kill (K)',false]]:[]),...(c.ewRestricted?[['Spectrum','EW-restricted area',true]]:[]),...((c.roe||'free')!=='free'?[['ROE',c.roe==='peacetime'?'Peacetime: clear every shot':'Tight: clear kinetic shots',true]]:[])];
   $('#conds').innerHTML=cards.map(([k,v,h])=>`<div class="cond ${h?'hot':''}"><small>${k}</small><b>${v}</b></div>`).join('');
   const sp=buildScenario(c);const nh=sp.filter(x=>TYPES[x.type].hostile).length;
-  $('#expect').innerHTML=`<span>Expected hostiles <b>${Math.max(1,nh-1)}–${nh+2}</b></span><span>Difficulty <b>${c.difficulty} / 6</b></span><span>About <b>2½ min</b></span>`;
+  const own=sp.filter(x=>TYPES[x.type].friendly);
+  $('#expect').innerHTML=`<span>Expected hostiles <b>${Math.max(1,nh-1)}–${nh+2}</b></span><span>Difficulty <b>${c.difficulty} / 6</b></span><span>About <b>2½ min</b></span>${own.length?`<span>Own UAV schedule <b>${own.map(x=>`${TYPES[x.type].short} T+${Math.round(x.t)} s from ${String(Math.round(x.brg)).padStart(3,'0')}°`).join('; ')}</b></span>`:''}`;
   $('#intentSub').textContent=DB.H.length?`Built from your last ${Math.min(5,DB.H.length)} drills`:'Starts after your first drill';
   $('#intentList').innerHTML=plan.lines.map((l,i)=>`<li><i>${i+1}</i><span><b>${l.b}</b>${l.t}</span></li>`).join('');
   $('#tests').innerHTML=`<b>This drill tests:</b> ${plan.tests.join(', ')}.`;
@@ -68,7 +73,11 @@ function startDrill(fromTour,opts:any={}){
 function sizeRadar(){const w=$('#radarWrap');const side=Math.max(320,Math.min(w.clientWidth-28,w.clientHeight-28));rc.style.width=side+'px';rc.style.height=side+'px';}
 function act(a){a.tick=L.tick;live.queue.push(a);live.actions.push(a);}
 function doTrack(c){if((live.did[c.id]||{}).track)return;live.did[c.id]={...(live.did[c.id]||{}),track:true};if(!live.labels[c.id])live.labels[c.id]='T'+String(++live.nLab).padStart(2,'0');act({k:'track',cid:c.id});emit('act',{k:'track',c});}
-function doId(c,cls,conf){const d=live.did[c.id]||{};if(d.id)return;live.did[c.id]={...d,id:{cls,conf}};act({k:'id',cid:c.id,cls,conf});emit('act',{k:'id',c,cls,conf});}
+function doId(c,cls,conf){const d=live.did[c.id]||{};if(d.id&&!(isUnk(d.id.cls)&&!isUnk(cls)))return;live.did[c.id]={...d,id:{cls,conf}};act({k:'id',cid:c.id,cls,conf});emit('act',{k:'id',c,cls,conf});}
+// A shot that could work but missed (effector pk < 1): tell the trainee once, so they engage again.
+const missSeen=new WeakSet();
+function noteMisses(){for(const c of L.contacts){const e=c.engs[c.engs.length-1];if(e&&e.miss&&!missSeen.has(e)){missSeen.add(e);toast(`MISS: ${EFF[e.eff].label} on ${live.labels[c.id]||'contact'}. Engage again.`);}}}
+function doReq(c){act({k:'req',cid:c.id});const d=live.did[c.id]||{};live.did[c.id]={...d,req:true};emit('act',{k:'req',c});}
 function doEng(c,eff){act({k:'eng',cid:c.id,eff});const d=live.did[c.id]||{};live.did[c.id]={...d,engAt:L.tick,lastEff:eff};emit('act',{k:'eng',c,eff});}
 const R0=470,C0=500;const w2c=(x,y)=>[C0+x*R0/RMAX,C0+y*R0/RMAX];
 function contactKind(c){const d=live.did[c.id]||{};const cls=c.idCls||(d.id&&d.id.cls);return kindOfCls(cls);}
@@ -91,6 +100,8 @@ function drawRadar(){
   if(live.cfg.terrain==='urban'){for(let i=0;i<120;i++){ctx.strokeRect(tr()*1000,tr()*1000,6+tr()*20,6+tr()*14);}}else{for(let i=0;i<14;i++){ctx.beginPath();ctx.ellipse(tr()*1000,tr()*1000,30+tr()*70,20+tr()*40,tr()*3,0,7);ctx.stroke();}}
   if(live.cfg.fault==='radar'){const a0=(live.cfg.faultSector-30-90)*Math.PI/180,a1=(live.cfg.faultSector+30-90)*Math.PI/180;ctx.fillStyle='rgba(242,201,76,0.07)';ctx.beginPath();ctx.moveTo(C0,C0);ctx.arc(C0,C0,R0,a0,a1);ctx.closePath();ctx.fill();
     const am=(live.cfg.faultSector-90)*Math.PI/180;ctx.fillStyle='rgba(242,201,76,0.7)';ctx.font=`600 19px ${cond}`;ctx.textAlign='center';ctx.fillText('RADAR FAULT',C0+Math.cos(am)*R0*0.62,C0+Math.sin(am)*R0*0.62);ctx.textAlign='left';}
+  for(const [a,b] of live.cfg.safeArcs||[]){const a0=(a-90)*Math.PI/180,a1=((b<a?b+360:b)-90)*Math.PI/180;ctx.fillStyle='rgba(255,92,97,0.10)';ctx.beginPath();ctx.moveTo(C0,C0);ctx.arc(C0,C0,R0,a0,a1);ctx.closePath();ctx.fill();
+    const am=(a0+a1)/2;ctx.fillStyle='rgba(255,140,140,0.8)';ctx.font=`600 17px ${cond}`;ctx.textAlign='center';ctx.fillText('SAFE ARC · NO GUN',C0+Math.cos(am)*R0*0.78,C0+Math.sin(am)*R0*0.78);ctx.textAlign='left';}
   drawWeatherScope(ctx,cond);
   const sw=(L.tick*DT/SWEEP*360)%360;for(let i=0;i<36;i++){const a=(sw-i*1.1-90)*Math.PI/180;ctx.strokeStyle=`rgba(63,167,150,${0.32*(1-i/36)})`;ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(C0,C0);ctx.lineTo(C0+Math.cos(a)*R0,C0+Math.sin(a)*R0);ctx.stroke();}
   ctx.restore();
@@ -148,12 +159,13 @@ function renderRail(force=false){
   const blips=L.contacts.filter(c=>c.trackTick==null&&!(live.did[c.id]||{}).track&&visibleBlip(L,c)).length;
   $('#ccount').textContent=`${tracked.filter(c=>c.state==='live').length} tracked · ${blips} unknown blip${blips===1?'':'s'}`;
   const order=tracked.slice().sort((a,b)=>(a.state==='live'?0:1)-(b.state==='live'?0:1)||tti(a)-tti(b));
+  const ranked=order.filter(c=>c.state==='live'&&isFinite(tti(c)));
   $('#contacts').innerHTML=order.map(c=>{
     const kind=contactKind(c),col=KCOL(kind);const d=live.did[c.id]||{};const cls=c.idCls||(d.id&&d.id.cls);const tt=tti(c);
     const st=c.state==='neutralised'?'Neutralised':c.state==='leaked'?'Reached asset':!cls?'Identify':c.effectAt!=null?'Engaging':(c.engs.length&&c.engs[0].eff==='hold'?'Holding':'Decide');
     const w=c.state==='live'?windows(c):null;
     const win=!w?'':(isFinite(tt)||Object.values(w).some(Boolean))?`<div class="win"><div class="wbox">${EFF_ORDER.map((k,i)=>w[k]?`<i style="top:${2+i*4}px;left:${w[k][0]/60*100}%;width:${Math.max(1.5,(w[k][1]-w[k][0])/60*100)}%;background:var(${EFF[k].color})"></i>`:'').join('')}${isFinite(tt)&&tt<60?`<b style="left:${tt/60*100}%"></b>`:''}</div></div>`:`<div class="wnote">Not closing on the asset</div>`;
-    return `<div class="ccard ${live.sel===c.id?'sel':''} ${c.state!=='live'?'done':''}" data-id="${c.id}">${symSvg(kind,col,kind==='unknown')}<div class="nm">${live.labels[c.id]||'—'}<small>${cls?TYPES[cls].short:'Unknown'}</small></div><div class="tt">${c.state!=='live'?st:isFinite(tt)?`<b class="num ${tt<15?'urgent':''}">${Math.round(tt)} s</b> to impact`:`<b>${(Math.hypot(c.x,c.y)/1000).toFixed(1)} km</b>`}<br><span style="font-size:12.5px">${c.state==='live'?st:''}</span></div>${win}</div>`;}).join('')||'<div class="empty">No tracks yet. Click a yellow blip on the radar.</div>';
+    return `<div class="ccard ${live.sel===c.id?'sel':''} ${c.state!=='live'?'done':''}" data-id="${c.id}">${symSvg(kind,col,kind==='unknown')}<div class="nm">${live.labels[c.id]||'—'}<small>${cls?TY(cls).short:'Unknown'}${ranked.includes(c)?` · <b title="Rank by time to the asset">#${ranked.indexOf(c)+1}</b>`:''}</small></div><div class="tt">${c.state!=='live'?st:isFinite(tt)?`<b class="num ${tt<15?'urgent':''}">${Math.round(tt)} s</b> to impact`:`<b>${(Math.hypot(c.x,c.y)/1000).toFixed(1)} km</b>`}<br><span style="font-size:12.5px">${c.state==='live'?st:''}</span></div>${win}</div>`;}).join('')||'<div class="empty">No tracks yet. Click a yellow blip on the radar.</div>';
   $('#clock').textContent=fmt(L.tick*DT);
   $('#left').textContent=L.contacts.filter(c=>TYPES[c.type].hostile&&c.state==='live').length+(L.spawns.slice(L.next).filter(s=>TYPES[s.type].hostile).length);
   renderClues(force);
@@ -165,14 +177,15 @@ function clueList(c){
   const Ty=TYPES[c.type],since=c.trackTick!=null?(L.tick-c.trackTick)*DT:0,d=Math.hypot(c.x,c.y),camR=cameraRange(C,live.cfg.time,live.cfg.weather);
   const sw=Ty.motion==='swarm'?L.contacts.filter(o=>o!==c&&o.type===c.type&&o.state==='live'&&Math.hypot(o.x-c.x,o.y-c.y)<600).length:0;
   const beh=(c.hover&&Ty.behaviourHover?Ty.behaviourHover:Ty.behaviour).replace('{n}',String(sw)).replace('with 1 others','with 1 other');
-  const CL=C.training.clues;
+  const CL=C.training.clues,ac=acousticClue(L,c);
   return[
     {k:'Radar',at:0,v:`${Math.round(c.v*3.6)} km/h · ${Math.round(c.alt)} m · ${Ty.echo.toLowerCase()} echo`},
     {k:'Friendly check',at:CL.friendlyCheckSec,v:Ty.friendly?'Matches flight plan F-21':'No flight-plan match'},
     {k:'RF signal',at:CL.rfSec,v:live.cfg.fault==='rf'?'Detector offline':Ty.rf},
     {k:'Behaviour',at:CL.behaviourSec,v:beh},
     {k:'Camera',at:0,cam:true,ready:d<camR,v:d<camR?(live.cfg.time==='night'?'Thermal':'Daylight')+(live.cfg.fault==='eo'?', degraded':'')+((live.cfg.weather||'clear')!=='clear'?', '+WEATHER_LABEL[live.cfg.weather].toLowerCase():''):`Out of range until ${(camR/1000).toFixed(1)} km`+((live.cfg.weather||'clear')!=='clear'?` (${WEATHER_LABEL[live.cfg.weather].toLowerCase()})`:'')},
-  ].map(x=>({...x,ok:x.cam?x.ready:since>=x.at,left:Math.max(0,x.at-since)}));
+    ...(ac?[{k:'Acoustic',at:C.training.acoustic.clueSec,heard:ac.heard,v:ac.sig,wait:ac.heard?'':`Not heard yet: in range from ${(ac.rangeM/1000).toFixed(1)} km`}]:[]),
+  ].map(x=>({...x,ok:x.cam?x.ready:since>=x.at&&x.heard!==false,left:Math.max(0,x.at-since)}));
 }
 function renderClues(force){
   const c=selC();
@@ -182,11 +195,11 @@ function renderClues(force){
   $('#selSub').textContent=c.state==='live'?`${(Math.hypot(c.x,c.y)/1000).toFixed(2)} km · ${String(Math.round(brgOf(c.x,c.y))).padStart(3,'0')}°`:'';
   if(sig!==live.sig||force){
     const prevOk=(live.sig.split('|')[2]||'');live.sig=sig;
-    $('#selTitle').textContent=`${live.labels[c.id]||'—'} · ${cls?TYPES[cls].label:'Unknown contact'}`;
+    $('#selTitle').textContent=`${live.labels[c.id]||'—'} · ${cls?TY(cls).label:'Unknown contact'}`;
     $('#selMeta').textContent=cls?'Identification locked.':'Clues arrive over a few seconds. Commit when you are sure enough.';
-    $('#clues').innerHTML=cl.map((x,i)=>`<div class="clue ${x.ok?'':'wait'} ${x.ok&&prevOk[i]==='0'?'fresh':''}"><div class="k">${x.k}</div><div>${x.cam?(x.ok?`<canvas id="eo" width="264" height="176"></canvas><div class="v" style="font-size:12.5px;color:var(--nm);margin-top:3px">${x.v}</div>`:`<div class="v">${x.v}</div>`):`<div class="v">${x.ok?x.v:'arriving…'}</div>${x.ok?'':`<div class="prog"><i data-at="${x.at}" style="width:0%"></i></div>`}`}</div></div>`).join('');
-    if(cls){$('#idBody').innerHTML=`<div class="locked">Identified as <b style="color:${KCOL(kindOfCls(cls))}">${TYPES[cls].label}</b> · ${confLabel(conf)}</div>`;}
-    else{$('#idBody').innerHTML=`<div class="idGrid">${ORDER.map((k,i)=>`<button class="nbtn ${live.pick.cls===k?'pick':''}" data-cls="${k}">${TYPES[k].short}<small>${i+1}</small></button>`).join('')}</div><div class="confRow">${CONF.map(x=>`<button class="nbtn ${live.pick.conf===x.p?'pick':''}" data-conf="${x.p}">${x.label}<small>${x.key} · ${Math.round(x.p*100)}%</small></button>`).join('')}</div><button class="commit" id="commitBtn" ${live.pick.cls&&live.pick.conf?'':'disabled'}>Commit identification <kbd>Enter</kbd></button>`;}
+    $('#clues').innerHTML=cl.map((x,i)=>`<div class="clue ${x.ok?'':'wait'} ${x.ok&&prevOk[i]==='0'?'fresh':''}"><div class="k">${x.k}</div><div>${x.cam?(x.ok?`<canvas id="eo" width="264" height="176"></canvas><div class="v" style="font-size:12.5px;color:var(--nm);margin-top:3px">${x.v}</div>`:`<div class="v">${x.v}</div>`):`<div class="v">${x.ok?x.v:x.wait||'arriving…'}</div>${x.ok||x.wait?'':`<div class="prog"><i data-at="${x.at}" style="width:0%"></i></div>`}`}</div></div>`).join('');
+    if(cls&&!isUnk(cls)){$('#idBody').innerHTML=`<div class="locked">Identified as <b style="color:${KCOL(kindOfCls(cls))}">${TY(cls).label}</b> · ${confLabel(conf)}</div>`;}
+    else{$('#idBody').innerHTML=`${isUnk(cls)?'<div class="locked" style="margin-bottom:8px">Declared <b>Unknown</b>. Identify it as soon as the clues allow.</div>':''}<div class="idGrid">${ORDER.map((k,i)=>`<button class="nbtn ${live.pick.cls===k?'pick':''}" data-cls="${k}">${TYPES[k].short}${i<10?`<small>${(i+1)%10}</small>`:''}</button>`).join('')}${isUnk(cls)?'':`<button class="nbtn unk ${live.pick.cls==='unknown'?'pick':''}" data-cls="unknown">Unknown<small>U</small></button>`}</div><div class="confRow">${CONF.map(x=>`<button class="nbtn ${live.pick.conf===x.p?'pick':''}" data-conf="${x.p}">${x.label}<small>${x.key} · ${Math.round(x.p*100)}%</small></button>`).join('')}</div><button class="commit" id="commitBtn" ${live.pick.cls&&live.pick.conf?'':'disabled'}>Commit identification <kbd>Enter</kbd></button>`;}
   }
   if(c.trackTick!=null){const since=(L.tick-c.trackTick)*DT;$$('#clues .prog i').forEach(el=>{el.style.width=clamp(since/(+el.dataset.at)*100,0,100)+'%';});}
   renderDef(c,cls);
@@ -195,16 +208,25 @@ function renderDef(c,cls){
   const d=live.did[c.id]||{};
   const last=c.engs[c.engs.length-1];
   const av=EFF_ORDER.map(k=>availability(c,k));
-  const dsig=[c.id,cls,c.state,c.effectAt,c.engs.length,av.map(a=>a.txt).join(','),JSON.stringify(L.stock)].join('|');
+  const clrLeft=c.clrAt!=null?Math.ceil(Math.max(0,(c.clrAt-L.tick)*DT)):'';
+  const dsig=[c.id,cls,c.state,c.bdaTick,d.bda,c.effectAt,c.engs.length,av.map(a=>a.txt).join(','),JSON.stringify(L.stock),c.clrReq,d.req,clrLeft].join('|');
   if(dsig===live.defSig)return;live.defSig=dsig;
   if(!cls){$('#defBody').innerHTML='<div class="empty" style="padding:2px 0 8px">Identify first.</div>';return;}
-  if(c.state==='neutralised'){$('#defBody').innerHTML=`<div class="locked" style="border-color:var(--nn)">Neutralised by <b>${EFF[c.effectBy].label}</b>.</div>`;return;}
+  if(c.state==='neutralised'){const ka=L.cfg.killAssess&&TY(cls).hostile&&c.bdaTick==null&&!d.bda;$('#defBody').innerHTML=`<div class="locked" style="border-color:var(--nn)">Neutralised by <b>${EFF[c.effectBy].label}</b>.${c.bdaTick!=null||d.bda?' Kill reported ✓':''}</div>${ka?`<div class="clrRow"><button class="nbtn" data-act="bda"><span>${TY(c.type).payload?'Confirm kill · mark crash site for EOD':'Confirm kill and report'}<small>Kill assessment</small></span><kbd>K</kbd></button></div>`:''}`;return;}
   if(c.state==='leaked'){$('#defBody').innerHTML='<div class="locked" style="border-color:var(--nh)">Reached the protected asset.</div>';return;}
   let note='';
   if(c.effectAt!=null)note=`<div class="locked" style="margin-bottom:8px">${EFF[c.effectBy].label} sent. Effect in ${Math.max(0,(c.effectAt-L.tick)*DT).toFixed(1)} s.</div>`;
+  else if(last&&last.miss)note=`<div class="locked" style="margin-bottom:8px;border-color:var(--nh)">${EFF[last.eff].label}: <b>MISS</b>. It is still coming. Engage again.</div>`;
   else if(last&&last.eff!=='hold'&&!last.effective)note=`<div class="locked" style="margin-bottom:8px;border-color:var(--nh)">${EFF[last.eff].label}: <b>no effect</b>. It is still coming. Choose again.</div>`;
   else if(last&&last.eff==='hold')note=`<div class="locked" style="margin-bottom:8px">Holding fire. Keep watching it.</div>`;
-  $('#defBody').innerHTML=note+`<div class="effGrid">${EFF_ORDER.map((k,i)=>`<button class="nbtn" data-eff="${k}" ${av[i].ok?'':'disabled'}><span>${EFF[k].label}${EFF[k].stock!=null?` (${L.stock[k]})`:''}<small>${av[i].txt}</small></span><kbd>${EFF[k].key}</kbd></button>`).join('')}<button class="nbtn hold" data-eff="hold" ${c.effectAt!=null||c.engs.length?'disabled':''}><span>Hold / monitor<small>for friendlies and birds</small></span><kbd>H</kbd></button></div>`;
+  // Rules of engagement: some effectors need clearance first (key C). Firing without it still works but costs R12.
+  const need=TY(cls).hostile||isUnk(cls)?EFF_ORDER.filter(k=>needsClearance(L,k)):[];
+  if(need.length&&c.effectAt==null){
+    if(c.clrReq==null&&!d.req)note+=`<div class="clrRow"><button class="nbtn" data-act="req"><span>Request clearance<small>${L.cfg.roe} ROE: ${need.map(k=>EFF[k].label).join(', ')} need clearance</small></span><kbd>C</kbd></button></div>`;
+    else if(c.clrAt==null||L.tick<c.clrAt)note+=`<div class="locked" style="margin-bottom:8px">Clearance requested. Cleared in ${clrLeft===''?'…':clrLeft+' s'}.</div>`;
+    else note+=`<div class="locked" style="margin-bottom:8px;border-color:var(--nn)">Cleared to engage.</div>`;
+  }
+  $('#defBody').innerHTML=note+`<div class="effGrid">${EFF_ORDER.map((k,i)=>`<button class="nbtn" data-eff="${k}" ${av[i].ok?'':'disabled'}><span>${needsClearance(L,k)&&!isCleared(L,c,k)?'🔒 ':''}${EFF[k].label}${EFF[k].stock!=null?` (${L.stock[k]})`:''}<small>${av[i].txt}</small></span><kbd>${EFF[k].key}</kbd></button>`).join('')}<button class="nbtn hold" data-eff="hold" ${c.effectAt!=null||c.engs.length?'disabled':''}><span>Hold / report<small>friendlies, birds, civil drones</small></span><kbd>H</kbd></button></div>`;
 }
 function drawEO(){
   const cv=$('#eo');const c=selC();if(!cv||!c)return;const ctx=cv.getContext('2d',{willReadFrequently:true});const W=cv.width,H=cv.height;const night=live.cfg.time==='night';
@@ -223,8 +245,10 @@ function drawEO(){
   ctx.strokeStyle='rgba(255,255,255,0.55)';ctx.lineWidth=1.5;ctx.beginPath();[[-1,0],[1,0],[0,-1],[0,1]].forEach(([a,b])=>{ctx.moveTo(W/2+a*8,H/2+b*8);ctx.lineTo(W/2+a*20,H/2+b*20);});ctx.stroke();
 }
 $('#contacts').addEventListener('click',e=>{const el=e.target.closest('.ccard');if(el)select(+el.dataset.id);});
-$('#idBody').addEventListener('click',e=>{const b=e.target.closest('button');if(!b||b.disabled)return;if(b.dataset.cls){live.pick.cls=b.dataset.cls;live.sig='';renderRail();}else if(b.dataset.conf){live.pick.conf=+b.dataset.conf;live.sig='';renderRail();}else if(b.id==='commitBtn')commitId();});
-$('#defBody').addEventListener('click',e=>{const b=e.target.closest('button');if(!b||b.disabled)return;engageSel(b.dataset.eff);});
+$('#idBody').addEventListener('click',e=>{const b=e.target.closest('button');if(!b||b.disabled)return;if(b.dataset.cls){live.pick.cls=b.dataset.cls;if(isUnk(b.dataset.cls))live.pick.conf=CONF[0].p;live.sig='';renderRail();}else if(b.dataset.conf){live.pick.conf=+b.dataset.conf;live.sig='';renderRail();}else if(b.id==='commitBtn')commitId();});
+$('#defBody').addEventListener('click',e=>{const b=e.target.closest('button');if(!b||b.disabled)return;if(b.dataset.act==='req'){reqSel();return;}if(b.dataset.act==='bda'){confirmKill();return;}engageSel(b.dataset.eff);});
+function reqSel(){const c=selC();if(!c)return;const d=live.did[c.id]||{};const cls=c.idCls||(d.id&&d.id.cls);if(!cls||d.req||c.clrReq!=null||!TY(cls).hostile)return;doReq(c);live.defSig='';setTimeout(()=>renderRail(true),120);}
+function confirmKill(){const c=selC();if(!c||c.state!=='neutralised'||!L.cfg.killAssess)return;const d=live.did[c.id]||{};if(d.bda||c.bdaTick!=null)return;live.did[c.id]={...d,bda:true};act({k:'bda',cid:c.id,out:'destroyed'});live.defSig='';toast(`${live.labels[c.id]||'Contact'}: kill reported${TY(c.type).payload?'; crash site marked for EOD':''}`);setTimeout(()=>renderRail(true),120);}
 function commitId(){const c=selC();if(!c||!live.pick.cls||!live.pick.conf||c.trackTick==null)return;doId(c,live.pick.cls,live.pick.conf);live.sig='';renderRail(true);}
 function engageSel(eff){const c=selC();if(!c)return;const d=live.did[c.id]||{};if(!(c.idCls||d.id))return;if(eff!=='hold'&&!availability(c,eff).ok)return;if(eff==='hold'&&(c.engs.length||c.effectAt!=null))return;doEng(c,eff);live.defSig='';setTimeout(()=>renderRail(true),120);}
 function accumulate(){if(live.pointer!=null)live.attn[live.pointer]+=DT;else{const c=selC();if(c&&c.state==='live')live.attn[sectorOf(brgOf(c.x,c.y))]+=DT*0.5;}}
@@ -235,7 +259,7 @@ function frame(now){
 }
 function frameBody(dt){
   if(phase==='fight'&&L){
-    if(!live.paused&&!tourBlocking()&&!hooks.blockers.some(f=>f())){live.acc+=dt*live.speed*((window as any).__TIMEWARP||1);while(live.acc>=DT){live.acc-=DT;if(live.auto)botActs();step(L,live.queue.splice(0));accumulate();emit('tick');
+    if(!live.paused&&!tourBlocking()&&!hooks.blockers.some(f=>f())){live.acc+=dt*live.speed*((window as any).__TIMEWARP||1);while(live.acc>=DT){live.acc-=DT;if(live.auto)botActs();step(L,live.queue.splice(0));accumulate();noteMisses();emit('tick');
       const done=(live.doneFn?live.doneFn(L):isDone(L))||(live.maxSec&&L.tick>=T(live.maxSec));
       if(done){if(live.endAt==null)live.endAt=L.tick+T(1.5);if(L.tick>=live.endAt){finishDrill();break;}}}}
     if(phase==='fight'){drawRadar();drawEO();if(++live.frame%6===0)renderRail();emit('frame');}
@@ -259,10 +283,10 @@ function finishDrill(){
   const jamNoRF=sc.filter(s=>s.src===s.c&&s.e0&&s.e0.eff==='jam'&&!TYPES[s.c.type].rfOn).length;
   const cal=calStats(sc),obs=observe(E,sc);const before=mastery(DB.H);
   const prev=DB.H[DB.H.length-1];
-  const rec:any={n:DB.H.length+1,demo:false,date:Date.now(),cfg,total,obs,attn,thr,cal,jamNoRF,endTick,mode:live.mode,template:live.template};
+  const rec:any={n:DB.H.length+1,demo:false,date:Date.now(),cfg,total,obs,attn,thr,cal,cls:classificationStats(sc,C),jamNoRF,endTick,mode:live.mode,template:live.template};
   if(!practice){DB.H.push(rec);saveDB();}
   R={cfg,spawns,acts,E,X,sc,scX,total,totalX,verified:total===totalLive,before,after:practice?before:mastery(DB.H),thr,attn,cal,endTick,prevTotal:prev?prev.total:null,labels:{...live.labels},mode:live.mode,lesson:live.lesson,template:live.template,rec,server:null};
-  if(!practice){plan=planNext(DB.H);if(hooks.syncDrill)hooks.syncDrill(rec,R);}
+  if(!practice){plan=planNext(DB.H,undefined,hooks.planOpts);if(hooks.syncDrill)hooks.syncDrill(rec,R);}
   setPhase('learn');renderLearn();emit('finish',R);
 }
 function bestCall(type){const Ty=TYPES[type];if(Ty.friendly)return 'hold fire';if(!Ty.hostile)return 'hold, no effector';const cls=decisionClass(Ty);return EFF[C.doctrine.defeat.preferred[cls]].label+(cls==='gnssOnly'?' (or interceptor)':'');}
@@ -278,7 +302,7 @@ function renderLearn(){
   const les=losses.filter(x=>x.loss>8).slice(0,3).map(({s,lD,lC,lF})=>{
     const Ty=TYPES[s.c.type],lab=labelOf(s.c);
     if(s.missed)return{h:`${lab === 'Missed'?'A hostile':lab} was never tracked`,p:`A ${Ty.label.toLowerCase()} came from the ${windOf(s.c.brg0)} and ${s.c.state==='leaked'?'reached the asset':'was never challenged'}.`,r:'R8'};
-    if(lC>=lD&&lC>=lF&&s.src.idCls&&s.src.idCls!==s.c.type)return{h:`${lab}: called it a ${TYPES[s.src.idCls].short.toLowerCase()}; it was a ${Ty.label.toLowerCase()}`,p:`You said ${confLabel(s.src.idConf)}. The deciding clue: ${TYPES[s.c.type].deciding}.`,r:'C1'};
+    if(lC>=lD&&lC>=lF&&s.src.idCls&&s.src.idCls!==s.c.type)return{h:`${lab}: called it a ${TY(s.src.idCls).short.toLowerCase()}; it was a ${Ty.label.toLowerCase()}`,p:`You said ${confLabel(s.src.idConf)}. The deciding clue: ${TYPES[s.c.type].deciding}.`,r:'C1'};
     if(lD>=lF)return{h:`${lab}: ${s.det.toFixed(1)} s to start the track`,p:`It was on radar for ${s.det.toFixed(1)} s before you tracked it. Full marks need under 3 s.`,r:'D1'};
     const rr=s.rules.filter(x=>x[0]==='R');return{h:`${lab}: ${s.why[0]}`,p:`Right first call for a ${Ty.label.toLowerCase()}: ${bestCall(s.c.type)}.${s.why.length>1?' '+s.why.slice(1).join('. ')+'.':''}`,r:rr[rr.length-1]||'R3'};
   });
@@ -294,7 +318,7 @@ function renderLearn(){
   $('#fpCap').innerHTML=`Biggest gain: <b>${diffs[0][0]}</b> (${diffs[0][1]>=0?'+':''}${Math.round(diffs[0][1]*100)} pts). Weakest now: <b>${weakest[0]}</b> (${Math.round(weakest[1]*100)}%). Dashed = before this drill.`;
   // audit
   $('#audit').innerHTML=`<tr><th>Track</th><th>Truth</th><th>You said</th><th>You did</th><th style="text-align:right">Detect</th><th style="text-align:right">Identify</th><th style="text-align:right">Defeat</th><th style="text-align:right">Total</th><th>Rules</th><th>Why</th></tr>`+
-    R.sc.map(s=>{const Ty=TYPES[s.c.type];const said=s.src.idCls?`${TYPES[s.src.idCls].short} · ${confLabel(s.src.idConf)}`:'—';const did=s.e0?(s.e0.eff==='hold'?'Hold':EFF[s.e0.eff].label):'—';const cl=v=>v>=75?'good':v>=50?'mid':'bad';
+    R.sc.map(s=>{const Ty=TYPES[s.c.type];const said=s.src.idCls?`${TY(s.src.idCls).short} · ${confLabel(s.src.idConf)}`:'—';const did=s.e0?(s.e0.eff==='hold'?'Hold':EFF[s.e0.eff].label):'—';const cl=v=>v>=75?'good':v>=50?'mid':'bad';
       return `<tr><td><b>${labelOf(s.c)}</b></td><td>${Ty.label}</td><td class="${s.src.idCls&&s.src.idCls!==s.c.type?'bad':''}">${said}</td><td>${did}${s.src!==s.c||s.c.areaCredit?' (area)':''}</td><td class="n">${s.D}</td><td class="n">${s.C}</td><td class="n">${s.F}</td><td class="n ${cl(s.total)}">${s.total}</td><td>${s.rules.map(r=>`<span class="chip" title="${RULES[r]}">${r}</span>`).join('')}</td><td>${s.why.join('. ')}</td></tr>`;}).join('');
   $('#integrity').innerHTML=`<span>Record: <b>${R.acts.length} decisions</b></span><span>Deterministic replay: <b class="${R.verified?'good':'bad'}">${R.verified?'verified, same score on re-run':'mismatch'}</b></span><span id="hashOut">SHA-256 chain: computing…</span>`;
   chainHash(R.acts).then(h=>{$('#hashOut').innerHTML=`SHA-256 chain: <b>${h.slice(0,10)}…${h.slice(-6)}</b> (each decision is linked to the one before)`;});
@@ -316,12 +340,13 @@ function renderTape(){
     if(g){if(g.trackTick!=null)s+=dia(g.trackTick*DT,false);if(g.idTick!=null)s+=`<circle cx="${X(g.idTick*DT)}" cy="${y}" r="6" fill="none" stroke="#46554C" stroke-width="1.5" stroke-dasharray="2 2"/>`;if(g.engs[0])s+=tri(g.engs[0].tick*DT,false,'');}
     if(src===c&&c.trackTick!=null)s+=dia(c.trackTick*DT,true);
     if(src===c&&c.idTick!=null){const ok=c.idCls===c.type;s+=`<circle cx="${X(c.idTick*DT)}" cy="${y}" r="${3+c.idConf*4.5}" fill="${ok?'#2B7746':'#B3122A'}"/>`;}
-    if(src===c)c.engs.forEach((e,j)=>{s+=tri(e.tick*DT,true,e.eff==='hold'?'H':EFF[e.eff].key);});
+    if(src===c&&c.idTick!=null&&sl.sensorDown)s+=`<circle cx="${X(c.idTick*DT)}" cy="${y}" r="11" fill="none" stroke="#E0A800" stroke-width="2.5"><title>Sensor down: a fault removed a clue when this was identified (points unchanged)</title></circle>`;
+    if(src===c)c.engs.forEach((e,j)=>{s+=tri(e.tick*DT,!e.miss,e.eff==='hold'?'H':EFF[e.eff].key+(e.miss?'✕':''));});
     const out=sl.missed?'Missed':c.state==='neutralised'?'Stopped':c.state==='leaked'?'Leaked':Ty.hostile?'Live':'Held';
     let delta='';if(g&&g.engs[0]&&src.engs[0]&&src===c){const dd=(src.engs[0].tick-g.engs[0].tick)*DT;delta=`${dd>=0?'+':''}${dd.toFixed(1)} s`;}
     s+=`<text x="${x1+12}" y="${y-1}" font-family="Barlow Condensed, DejaVu Sans Condensed, sans-serif" font-size="13" font-weight="600" fill="${out==='Leaked'||out==='Missed'?'#B3122A':'#18231D'}">${out}</text>${delta?`<text x="${x1+12}" y="${y+13}" font-family="Barlow Condensed, DejaVu Sans Condensed, sans-serif" font-size="11.5" fill="${parseFloat(delta)>3?'#B3122A':'#78867D'}">${delta} vs ghost</text>`:''}`;});
   s+=`<line id="playhead" x1="${X(replay.tick*DT)}" y1="16" x2="${X(replay.tick*DT)}" y2="${H-22}" stroke="#18231D" stroke-width="1.5" stroke-dasharray="3 3"/></svg>`;
-  $('#tape').innerHTML=s;$('#tapeSub').textContent=`${lanes.length} contacts · ${fmt(endS)} · outlines show the expert ghost on the same seed`;
+  $('#tape').innerHTML=s;$('#tapeSub').textContent=`${lanes.length} contacts · ${fmt(endS)} · outlines show the expert ghost on the same seed${lanes.some(l=>l.sensorDown)?' · amber ring: a sensor was down when you identified it':''}`;
   R.tapeX=X;
 }
 function drawReplay(){
@@ -375,8 +400,8 @@ $('#nextBtn').onclick=()=>goNext();
 function goNext(){if(hooks.next&&hooks.next())return;renderBrief();setPhase('brief');}
 
 // ===================== unit readiness board =====================
-const OPS=[{n:'Sep Vikram Singh',v:{detect:.91,identify:.88,defeat:.86,night:.87,swarm:.72,degraded:.81,weather:0.79}},{n:'Sep Imran Khan',v:{detect:.86,identify:.9,defeat:.92,night:.9,swarm:.88,degraded:.86,weather:0.83}},{n:'L/Nk Deepak Thapa',v:{detect:.86,identify:.74,defeat:.7,night:.61,swarm:.55,degraded:.66,weather:0.57}},{n:'Sep Rahul Yadav',v:{detect:.93,identify:.89,defeat:.9,night:.86,swarm:.9,degraded:.58,weather:0.84}},{n:'Sep Kiran Patil',v:{detect:.71,identify:.66,defeat:.62,night:.48,swarm:.4,degraded:.52,weather:0.45}},{n:'Nk Suresh Nair',v:{detect:.89,identify:.92,defeat:.87,night:.91,swarm:.86,degraded:.88,weather:0.82}}];
-const BCOLS=[['detect','Detection'],['identify','Identification'],['defeat','Defeat'],['night','Night'],['swarm','Swarm'],['degraded','Faulty sensors'],['weather','Bad weather']];
+const OPS=[{n:'Sep Vikram Singh',v:{detect:.91,identify:.88,defeat:.86,night:.87,swarm:.72,degraded:.81,weather:0.79,roe:0.84}},{n:'Sep Imran Khan',v:{detect:.86,identify:.9,defeat:.92,night:.9,swarm:.88,degraded:.86,weather:0.83,roe:0.9}},{n:'L/Nk Deepak Thapa',v:{detect:.86,identify:.74,defeat:.7,night:.61,swarm:.55,degraded:.66,weather:0.57,roe:0.62}},{n:'Sep Rahul Yadav',v:{detect:.93,identify:.89,defeat:.9,night:.86,swarm:.9,degraded:.58,weather:0.84,roe:0.88}},{n:'Sep Kiran Patil',v:{detect:.71,identify:.66,defeat:.62,night:.48,swarm:.4,degraded:.52,weather:0.45,roe:0.47}},{n:'Nk Suresh Nair',v:{detect:.89,identify:.92,defeat:.87,night:.91,swarm:.86,degraded:.88,weather:0.82,roe:0.86}}];
+const BCOLS=[['detect','Detection'],['identify','Identification'],['defeat','Defeat'],['night','Night'],['swarm','Swarm'],['degraded','Faulty sensors'],['weather','Bad weather'],['roe','ROE']];
 const roster=new Set(['night','swarm']);
 function renderUnit(){
   const me={n:TRAINEE.name+' (you)',v:mastery(DB.H),me:true};const all: any[]=hooks.operators?hooks.operators():[me,...OPS];
@@ -387,6 +412,12 @@ function renderUnit(){
   $('#rosterAns').innerHTML=`<div class="kicker">Ready for ${need.length?need.map(k=>({night:'night',swarm:'swarm',degraded:'faulty sensors',weather:'bad weather'}[k])).join(' + '):'any task'}</div><div class="bigAns">${ready.length} of ${all.length}</div>`;
   $('#rlist').innerHTML=scored.map(x=>`<div class="ritem ${x.min>=CERT.certifiedMastery?'ok':''}"><span>${x.o.n}</span><em class="num">${x.min>=CERT.certifiedMastery?'Ready':'Not yet'} · ${Math.round(x.min*100)}%</em></div>`).join('');
 }
+// Drill history as CSV for after-action review. Online: the server's verified records (scoped by role); offline: this browser's history.
+$('#csvBtn').addEventListener('click',()=>{
+  if(hooks.exportCsv)return hooks.exportCsv();
+  const blob=new Blob([drillsToCsv(DB.H.map(r=>({operator:TRAINEE.name,unit:TRAINEE.unit,record:r})),CERT.passMark)],{type:'text/csv'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='parashurama-drills.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+});
 $('#rosterSeg').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;const k=b.dataset.k;roster.has(k)?roster.delete(k):roster.add(k);renderUnit();});
 
 // ===================== guided tour =====================
@@ -450,25 +481,29 @@ addEventListener('keydown',e=>{
   const k=e.key.toLowerCase();
   if(e.key===' '){e.preventDefault();togglePause();return;}
   if(e.key==='Tab'){e.preventDefault();const lst=L.contacts.filter(c=>c.state==='live'&&(c.trackTick!=null||(live.did[c.id]||{}).track)).sort((a,b)=>tti(a)-tti(b));if(lst.length){const i=lst.findIndex(c=>c.id===live.sel);select(lst[(i+1)%lst.length].id);}return;}
-  const c=selC();if(!c)return;const identified=c.idCls||(live.did[c.id]||{}).id;
-  if(!identified){if(k>='1'&&k<='6'){live.pick.cls=ORDER[+k-1];live.sig='';renderRail();return;}const cf=CONF.find(x=>x.key.toLowerCase()===k);if(cf){live.pick.conf=cf.p;live.sig='';renderRail();return;}if(e.key==='Enter'){commitId();return;}}
-  else{const ef=EFF_ORDER.find(x=>EFF[x].key.toLowerCase()===k);if(ef){engageSel(ef);return;}if(k==='h')engageSel('hold');}
+  const c=selC();if(!c)return;const idc=c.idCls||((live.did[c.id]||{}).id||{}).cls;const identified=idc&&!isUnk(idc);
+  if(k==='k'){confirmKill();return;}
+  if(!identified&&!idc&&k==='u'){live.pick.cls='unknown';live.pick.conf=CONF[0].p;live.sig='';renderRail();return;}
+  if(!identified){if(k>='0'&&k<='9'&&ORDER[(+k+9)%10]){live.pick.cls=ORDER[(+k+9)%10];live.sig='';renderRail();return;}const cf=CONF.find(x=>x.key.toLowerCase()===k);if(cf){live.pick.conf=cf.p;live.sig='';renderRail();return;}if(e.key==='Enter'){commitId();return;}}
+  else{const ef=EFF_ORDER.find(x=>EFF[x].key.toLowerCase()===k);if(ef){engageSel(ef);return;}if(k==='c'){reqSel();return;}if(k==='h')engageSel('hold');}
 });
 $('#beginBtn').onclick=()=>{if(tour.on&&TOUR[tour.i].p==='brief'){tour.i=TOUR.findIndex(x=>x.p==='fight');if(hooks.tourBegin)hooks.tourBegin();else startDrill(true);}else startDrill(false);};
 
 // ---- scripted trainee, used for the walkthrough video and screenshots ----
 function botActs(skipRecentSec=0){
+  if(L.cfg.killAssess)for(const c of L.contacts){const d=live.did[c.id]||{};if(c.state==='neutralised'&&c.bdaTick==null&&!d.bda&&TYPES[c.type].hostile&&c.endTick!=null&&L.tick>=c.endTick+T(1.5)){live.did[c.id]={...d,bda:true};act({k:'bda',cid:c.id,out:'destroyed'});}}
   for(const c of L.contacts){if(c.state!=='live')continue;const d=live.did[c.id]||{};
     if(c.trackTick==null&&!d.track){if(c.firstPaint!=null&&!c.area&&c.effectAt==null&&visibleBlip(L,c)&&L.tick>=c.firstPaint+T(1.5+(c.id%5)*0.9))doTrack(c);continue;}
     if(c.trackTick==null)continue;
     if(skipRecentSec&&L.tick-c.trackTick<T(skipRecentSec))continue;
     if(c.idTick==null&&!d.id){if(L.tick>=c.trackTick+T(3+(c.id%3)*1.5)){let cls=c.type,conf=[0.8,0.95,0.6][c.id%3];if(c.type==='loiter'&&c.id%3===0){cls='recon';conf=0.95;}if(c.type==='bird'&&c.id%2===1){cls='swarm';conf=0.6;}doId(c,cls,conf);}continue;}
     if(c.idTick==null||c.effectAt!=null)continue;
-    const Tb=TYPES[c.idCls];const last=c.engs[c.engs.length-1];
+    const Tb=TY(c.idCls);const last=c.engs[c.engs.length-1];
     if(!Tb.hostile){if(!c.engs.length)doEng(c,'hold');continue;}
     if(last&&L.tick<last.tick+T(4))continue;if(L.tick<c.idTick+T(2+(c.id%4)))continue;
+    if(c.clrReq==null&&EFF_ORDER.some(k=>needsClearance(L,k))){if(!d.req)doReq(c);continue;}
     let want=Tb.rfOn?'jam':'spoof';if(last&&!last.effective)want=TYPES[c.type].gnss?'spoof':'intc';if(c.id%5===0&&inReach(c,'gun'))want='gun';
-    if(availability(c,want).ok)doEng(c,want);
+    if(availability(c,want).ok&&isCleared(L,c,want))doEng(c,want);
   }
 }
 (window as any).PARA={
@@ -478,7 +513,8 @@ function botActs(skipRecentSec=0){
   select(id){select(id);},
   scrubTo(sec){replay.tick=Math.min(R.endTick,T(sec));$('#scrub').value=replay.tick;drawReplay();},
 };
-export function boot(){document.fonts.ready.then(()=>{renderBrief();setPhase('brief');if(!DB.tourDone&&!hooks.holdTour)startTour(0);requestAnimationFrame(frame);emit('boot');});}
+// If a lesson or drill already started from the hub before fonts loaded, don't send it back to the brief.
+export function boot(){document.fonts.ready.then(()=>{if(!L){renderBrief();setPhase('brief');if(!DB.tourDone&&!hooks.holdTour)startTour(0);}requestAnimationFrame(frame);emit('boot');});}
 /** Public surface for feature modules (academy, coach, audio, what-if, online, editor). */
 export const app: any = {
   get L(){return L;}, get R(){return R;}, get plan(){return plan;}, set plan(p){plan=p;}, get phase(){return phase;},

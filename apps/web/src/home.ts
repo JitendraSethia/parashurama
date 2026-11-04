@@ -1,5 +1,7 @@
-// Mission Hub: the front door. Explains the product in one screen and gives one-click paths for
-// beginners (Academy), trainees (adaptive drill), field units (real-world missions) and commanders (readiness).
+// Mission Hub: the front door, one decision at a time. It opens on one PLAY button. Play asks only "On Ground or
+// Radar?". On Ground then offers the guns, easiest first (L-70 and Shilka on easy settings, the urban patrol, the
+// harder ZU-23-2); Radar offers the coached lessons, a quick drill and the real-world missions. Back (or Esc) steps up
+// one level. Readiness and the classroom library are small links on the first choice.
 import { SCENARIOS, WEATHER_LABEL, mulberry, mastery } from '@parashurama/engine';
 import { app, hooks } from './app';
 import { $, $$ } from './dom';
@@ -8,57 +10,82 @@ import { startScenario } from './scenarios';
 import { CERT } from './cfg';
 
 let open = false, raf = 0;
-const WX_ICON: Record<string, string> = { clear: '☀', rain: '☔', fog: '🌫', dust: '🌪' };
+type Stage = 'play' | 'pick' | 'ground' | 'radar' | 'missions';
+/** Where the hub is (this session): after Play, the Home button returns to the choices, not to the Play screen. */
+let stage: Stage = 'play';
+const UP: Record<Stage, Stage> = { play: 'play', pick: 'play', ground: 'pick', radar: 'pick', missions: 'radar' };
+const local = (k: string): any[] => { try { const v = JSON.parse(localStorage.getItem(k) || '[]'); return Array.isArray(v) ? v : []; } catch { return []; } };
 
-function html(): string {
-  const done = new Set<number>(app.DB.academy?.done ?? []);
-  const next = LESSONS.find((l) => !done.has(l.n));
-  const m = mastery(app.DB.H);
-  const weakest = (['night', 'swarm', 'degraded', 'weather'] as const).reduce((a, b) => (m[a] <= m[b] ? a : b));
-  const weakName = { night: 'night drills', swarm: 'swarm attacks', degraded: 'faulty sensors', weather: 'bad weather' }[weakest];
-  const certified = Object.values(m).filter((v) => v >= CERT.certifiedMastery).length;
+function quickDrill() { closeHome(); app.renderBrief(); app.setPhase('brief'); if (!app.DB.tourDone) app.startTour(0); }
+
+function playHtml(): string {
   return `
   <canvas id="homeFx" aria-hidden="true"></canvas>
-  <div class="homeIn">
-    <div class="homeHero">
-      <div class="homeKicker">Smart India Hackathon 2026 · SIH26247 · Ministry of Defence</div>
-      <h1 class="homeTitle">PARASHURAMA</h1>
-      <p class="homeTag">Train every soldier to stop hostile drones.<br><span>On any laptop. Even offline.</span></p>
-      <button class="homeDemo" id="hcDemo"><i aria-hidden="true">▶</i><span><b>Watch the 90-second demo</b><small>The whole product, narrated. No clicks needed.</small></span></button>
-      <ol class="homeSteps">
-        <li><i>1</i><b>Learn</b><span>Short lessons with a coach who explains every clue.</span></li>
-        <li><i>2</i><b>Fight</b><span>Live drills on radar and in 3D. The enemy AI attacks your weak spots.</span></li>
-        <li><i>3</i><b>Improve</b><span>Every decision scored and explained, replayed against an expert.</span></li>
-      </ol>
-      <p class="homeMobile">📱 Watch the demo or try a mission here. Full drills work best on a laptop or a tablet in landscape.</p>
-      <div class="homeChips"><span>Works offline</span><span>Every score explained</span><span>Night · rain · fog · dust</span><span>3D view · VR-ready</span><span>Results can't be faked</span></div>
+  <div class="homePlay">
+    <div class="homeKicker">Smart India Hackathon 2026 · SIH26247 · Ministry of Defence</div>
+    <h1 class="homeTitle">PARASHURAMA</h1>
+    <p class="homeTag">Train every soldier to stop hostile drones.<br><span>On any laptop. Even offline.</span></p>
+    <div class="hpMulti"><i>MULTIPLAYER</i><span>Crew drills over your unit network · push-to-talk radio</span></div>
+    <div class="hpRow">
+      <button class="hpPlay" id="hcPlay" aria-label="Play"><i aria-hidden="true">▶</i><b>Play</b></button>
+      <button class="hpPlay hpLearn" id="hcLearn" aria-label="Learn: open the classroom"><i aria-hidden="true">📖</i><b>Learn</b></button>
     </div>
-    <div class="homeCards">
-      <button class="hc hcPrimary" id="hcAcademy">
-        <small>${next ? `New here? Start here · lesson ${next.n} of ${LESSONS.length}` : 'Academy complete ✓'}</small>
-        <b>${next ? 'Learn in 10 minutes' : 'Replay the Academy'}</b>
-        <span>${next ? `A coach walks you through every clue and decision. No experience needed.` : 'All four lessons done. Replay any lesson from the brief.'}</span>
-        <div class="hcProg">${LESSONS.map((l) => `<i class="${done.has(l.n) ? 'on' : ''}"></i>`).join('')}</div>
-        <em>${next ? `Start: ${next.title}` : 'Open lesson 1'} →</em>
-      </button>
-      <button class="hc" id="hcDrill">
-        <small>Adaptive drill</small><b>Quick drill</b>
-        <span>A 2-minute drill the enemy AI builds around your weakest skill: <strong>${weakName}</strong>.</span>
-        <em>Begin →</em>
-      </button>
-      <div class="hc hcMissions">
-        <small>Real-world missions</small><b>Defend a real kind of site</b>
-        <div class="hmList">${SCENARIOS.map((s, i) => `<button class="hm" data-hm="${i}"><span class="hmIcon" aria-hidden="true">${WX_ICON[s.cfg.weather ?? 'clear']}</span>
-          <span><b>${s.name}</b><small>${s.agency} · ${s.cfg.time === 'night' ? 'Night' : 'Day'} · ${WEATHER_LABEL[s.cfg.weather ?? 'clear']}</small></span><em>→</em></button>`).join('')}</div>
-      </div>
-      <button class="hc" id="hcUnit">
-        <small>For commanders</small><b>Unit readiness</b>
-        <span>Who in the troop is ready for tonight: night, swarm, faulty sensors or bad weather. You: ${certified} of ${Object.keys(m).length} skills certified.</span>
-        <em>Open the board →</em>
-      </button>
-    </div>
+    <button class="hpDemo" id="hcDemo">or watch the 90-second demo</button>
   </div>
-  <div class="homeFoot"><span>Team Dhwanik_TH06</span><span>Vendor-neutral · indigenous · runs on hardware every unit already has</span><span>Training values only, not equipment specifications</span></div>`;
+  <div class="homeFoot"><span>Team Dhwanik_TH06</span><span>Training values only, not equipment specifications</span></div>`;
+}
+
+interface Card { id: string; tag?: string; tagCls?: string; title: string; body: string; foot?: string; done?: boolean; data?: string; /** Never "Start here" (a menu, not a drill). */ menu?: boolean; }
+const cardHtml = (x: Card, here: boolean) => `<button class="hb ${here ? 'here' : ''}" id="${x.id}"${x.data ?? ''}>
+  <small>${x.tag ? `<i class="hbTag ${x.tagCls ?? ''}">${x.tag}</i>` : ''}${here ? '<i class="hbHere">Start here</i>' : x.done ? '<i class="hbDone">Done ✓</i>' : ''}</small>
+  <b>${x.title}</b><span>${x.body}</span><em>${x.foot ?? 'Start →'}</em></button>`;
+const crumbs: Record<Stage, string> = { play: '', pick: 'Play', ground: 'Play › On Ground', radar: 'Play › Radar', missions: 'Play › Radar › Real-world missions' };
+
+function screen(title: string, lead: string, cards: Card[], extra = '', startHere = true): string {
+  const here = startHere ? cards.find((x) => !x.done && !x.menu)?.id : undefined;
+  return `
+  <canvas id="homeFx" aria-hidden="true"></canvas>
+  <div class="homeMenu">
+    <div class="hmTop"><button class="hmBack" id="hcBack">← Back</button><div><small class="hmCrumb">${crumbs[stage]}</small><h2>${title}</h2></div></div>
+    <p class="hmLead">${lead}</p>
+    <div class="hmBig ${cards.length === 2 ? 'two' : ''}">${cards.map((x) => cardHtml(x, x.id === here)).join('')}</div>
+    ${extra}
+  </div>`;
+}
+
+function stageHtml(): string {
+  const local = (k: string): any[] => { try { const v = JSON.parse(localStorage.getItem(k) || '[]'); return Array.isArray(v) ? v : []; } catch { return []; } };
+  const field = local('parashurama.gunH').filter((r) => r?.game === 'field'), pats = local('parashurama.patrolH');
+  const byGun = (g: string) => field.filter((r) => r?.cfg?.gun === g), lastOf = (a: any[]) => (a.length ? `Last score ${a[a.length - 1].total} · Start →` : undefined);
+  const aca = new Set<number>(app.DB.academy?.done ?? []), m = mastery(app.DB.H);
+  const weakest = (['night', 'swarm', 'degraded', 'weather'] as const).reduce((a, b) => (m[a] <= m[b] ? a : b));
+  const weakName = { night: 'night drills', swarm: 'swarm attacks', degraded: 'faulty sensors', weather: 'bad weather' }[weakest];
+  if (stage === 'pick') {
+    const certified = Object.values(m).filter((v) => v >= CERT.certifiedMastery).length;
+    return screen('Where do you train?', 'Pick one. You can come back and try the other at any time.', [
+      { id: 'hcGround', tag: 'Guns', title: 'On Ground', body: 'Sit at the gun: L-70, Shilka or ZU-23-2. Spot the drone in the sky, identify it and fire. You can also drive the Shilka through a town.', foot: 'Choose a gun →' },
+      { id: 'hcRadarTrack', tag: 'Screen', title: 'Radar', body: 'Work the radar screen: spot drones, decide friend or foe, and pick the right way to stop each one. Lessons with a coach first.', foot: 'Choose →' },
+    ], `<p class="hmSmall">For commanders and instructors: <button class="hmLink" id="hcUnit">Unit readiness</button> (you: ${certified} of ${Object.keys(m).length} skills certified) · <button class="hmLink" id="hcLectures">Classroom library</button></p>`, false);
+  }
+  if (stage === 'ground') {
+    return screen('Choose a gun', 'Start with an easy one: day, clear sky, sensors working. Each drill takes a few minutes, and every decision is explained at the end.', [
+      { id: 'hcL70', tag: 'Easy', tagCls: 'easy', title: 'L-70 gun', body: 'The thermal sight and laser rangefinder track the drone and work out the lead for you.', done: byGun('l70').length > 0, foot: lastOf(byGun('l70')) },
+      { id: 'hcZsu', tag: 'Easy', tagCls: 'easy', title: 'Shilka (ZSU-23-4)', body: 'The radar locks on and lays the four guns for you. You report, identify and fire.', done: byGun('zsu234').length > 0, foot: lastOf(byGun('zsu234')) },
+      { id: 'hcPatrol', tag: 'Medium', tagCls: 'medium', title: 'Urban patrol', body: 'Drive the Shilka through an old town. Drones pop up over the rooftops: engage only hostiles.', done: pats.length > 0, foot: lastOf(pats) },
+      { id: 'hcZu', tag: 'Medium', tagCls: 'medium', title: 'ZU-23-2 (upgraded)', body: 'The upgraded twin gun: day camera, thermal imager, laser rangefinder and a digital fire-control computer. Old manual sight under More gun drills.', done: byGun('zu23m').length > 0, foot: lastOf(byGun('zu23m')) },
+    ], '<p class="hmSmall"><button class="hmLink" id="hcGun">More gun drills</button>: crew the gun on orders, run the control room, reload practice, UAV strike.</p>');
+  }
+  if (stage === 'radar') {
+    const lesson = LESSONS.find((l) => !aca.has(l.n));
+    return screen('Radar training', 'New to it? Start with the lessons: a coach explains every clue and when not to fire.', [
+      { id: 'hcAcademy', tag: `${aca.size} of ${LESSONS.length} lessons`, tagCls: 'easy', title: 'Learn with a coach', body: lesson ? `Four short lessons, about 10 minutes in all. Next: ${lesson.title}.` : 'All lessons done. Replay any lesson.', done: !lesson, foot: lesson ? `Start lesson ${lesson.n} →` : 'Replay →' },
+      { id: 'hcDrill', tag: 'Scored', title: 'Quick radar drill', body: `A short drill the enemy AI builds around your weakest skill: <strong>${weakName}</strong>.`, done: app.DB.H.length > 0 },
+      { id: 'hcMissions', tag: 'Scored', title: 'Real-world missions', body: 'Defend a real kind of site: an air base at night, a border post in fog, an airport in rain, a forward post in a dust storm.', foot: 'Choose a mission →', menu: true },
+    ]);
+  }
+  // missions
+  return screen('Choose a mission', 'Each one is a fixed, scored raid on a real kind of site.',
+    SCENARIOS.map((sc, i) => ({ id: `hcMission${i}`, data: ` data-hm="${i}"`, tag: `${sc.cfg.time === 'night' ? 'Night' : 'Day'} · ${WEATHER_LABEL[sc.cfg.weather ?? 'clear']}`, title: sc.name, body: sc.agency })), '', false);
 }
 
 /** Animated radar backdrop: a slow sweep with drifting contacts. Purely decorative. */
@@ -96,14 +123,38 @@ export function showHome() {
   if (app.phase === 'fight') return;
   let el = $('#home');
   if (!el) { el = document.createElement('div'); el.id = 'home'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'PARASHURAMA home'); document.body.appendChild(el); }
-  el.innerHTML = html(); el.classList.add('on'); open = true; document.body.classList.add('homeOn');
-  $('#hcAcademy').onclick = () => { const done = new Set<number>(app.DB.academy?.done ?? []); const nx = LESSONS.find((l) => !done.has(l.n)) ?? LESSONS[0]; closeHome(); markTourSeen(); startLesson(nx.n); };
-  $('#hcDrill').onclick = () => { closeHome(); app.renderBrief(); app.setPhase('brief'); if (!app.DB.tourDone) app.startTour(0); };
-  $$('[data-hm]').forEach((b: any) => (b.onclick = () => { closeHome(); markTourSeen(); startScenario(SCENARIOS[+b.dataset.hm]); }));
-  $('#hcDemo').onclick = () => { closeHome(); hooks.showcase?.(); };
-  $('#hcUnit').onclick = () => { closeHome(); markTourSeen(); app.renderUnit(); app.setPhase('learn'); ($('.learnTabs [data-t=unit]') as HTMLElement).click(); };
+  el.classList.add('on'); open = true; document.body.classList.add('homeOn');
+  if (stage !== 'play') stage = 'pick';
+  render();
+}
+function render() {
+  const el = $('#home'); if (!el) return;
+  cancelAnimationFrame(raf);
+  el.classList.toggle('menu', stage !== 'play');
+  el.innerHTML = stage === 'play' ? playHtml() : stageHtml();
+  const to = (st: Stage) => () => { stage = st; render(); };
+  const go = (f: () => void) => () => { closeHome(); markTourSeen(); f(); };
+  const on = (id: string, f: () => void) => { const b = document.getElementById(id); if (b) b.onclick = f; };
+  on('hcPlay', to('pick'));
+  on('hcLearn', go(() => hooks.openLectures?.()));
+  on('hcDemo', () => { closeHome(); hooks.showcase?.(); });
+  on('hcBack', to(UP[stage]));
+  on('hcGround', to('ground'));
+  on('hcRadarTrack', to('radar'));
+  on('hcMissions', to('missions'));
+  on('hcL70', go(() => hooks.openGun?.('field', { gun: 'l70', easy: true })));
+  on('hcZsu', go(() => hooks.openGun?.('field', { gun: 'zsu234', easy: true })));
+  on('hcZu', go(() => hooks.openGun?.('field', { gun: 'zu23m', easy: true })));
+  on('hcPatrol', go(() => hooks.openGun?.('patrol')));
+  on('hcGun', go(() => hooks.openGun?.()));
+  on('hcAcademy', () => { const done = new Set<number>(app.DB.academy?.done ?? []); const nx = LESSONS.find((l) => !done.has(l.n)) ?? LESSONS[0]; closeHome(); markTourSeen(); startLesson(nx.n); });
+  on('hcDrill', quickDrill);
+  $$('[data-hm]').forEach((b: any) => (b.onclick = go(() => startScenario(SCENARIOS[+b.dataset.hm]))));
+  on('hcLectures', go(() => hooks.openLectures?.()));
+  on('hcUnit', go(() => { app.renderUnit(); app.setPhase('learn'); ($('.learnTabs [data-t=unit]') as HTMLElement).click(); }));
   fx();
-  ($('#hcAcademy') as HTMLElement).focus({ preventScroll: true }); el.scrollTop = 0;
+  ((stage === 'play' ? $('#hcPlay') : document.querySelector('#home .hb.here') ?? document.querySelector('#home .hb')) as HTMLElement)?.focus({ preventScroll: true });
+  el.scrollTop = 0;
 }
 /** Choosing a guided path (Academy, mission, board) means the general tour is not needed now. */
 function markTourSeen() { if (!app.DB.tourDone) { app.DB.tourDone = true; app.saveDB(); } }
@@ -115,8 +166,8 @@ export function initHome() {
   hooks.showHome = showHome;
   const q = new URLSearchParams(location.search);
   // Home screen; skipped for deep links (instructor panel, tests).
-  const skip = q.has('nohome') || q.has('instructor') || q.has('demo');
-  hooks.holdTour = !skip;
+  const skip = q.has('nohome') || q.has('instructor') || q.has('demo') || q.has('gun');
+  hooks.holdTour = !skip || q.has('gun');
   // Home button in the header (hidden during a drill so a drill is never abandoned by accident)
   const hb = document.createElement('button'); hb.className = 'topBtn'; hb.id = 'homeBtn'; hb.textContent = 'Home';
   hb.onclick = () => showHome(); $('#helpBtn').before(hb);
@@ -124,7 +175,7 @@ export function initHome() {
   document.addEventListener('keydown', (e) => {
     if (!open) return;
     e.stopPropagation(); // default actions (Enter/Space on a focused card, Tab focus) still work
-    if (e.key === 'Escape') ($('#hcDrill') as HTMLElement).click();
+    if (e.key === 'Escape' && stage !== 'play') { stage = UP[stage]; render(); }
   }, true);
   if (!skip) showHome();
 }

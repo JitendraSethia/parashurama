@@ -4,7 +4,11 @@ AI counter-drone decision trainer. SIH 2026 · PS SIH26247 (Ministry of Defence 
 
 Trainees detect, identify and defeat drone and swarm threats on a laptop. A guided **Academy** teaches complete beginners with a coach that explains every clue and decision. Scored drills grade every decision against doctrine and explain it, an **expert ghost** replays the same drill perfectly, a learning model tracks each skill, and an **enemy AI** builds the next drill around each trainee's weaknesses. A **unit server** verifies every drill independently and gives commanders a readiness board.
 
-**Live prototype:** `docs/index.html` is the whole app in one offline file; it is served by GitHub Pages (Settings → Pages → branch `main`, folder `/docs`).
+**Live prototype:**
+- **Vercel:** builds the app from source on every push, using `vercel.json` and `scripts/vercel-build.mjs`. The app is installable and works offline after the first visit.
+  - It also publishes `/comparison.html`, `/threat-library.html`, the guides under `/guides/`, and `/offline.html`, the one-file copy checked against `RELEASE.txt`.
+  - Vercel runs the app in offline mode: no sign-in and no LAN crew drills. Those need the unit server.
+- **GitHub Pages:** can still serve `docs/` (Settings → Pages → branch `main`, folder `/docs`).
 
 ## Who reads what
 
@@ -24,7 +28,7 @@ Requires Node.js 22.5 or newer.
 ```bash
 npm install
 npm run dev                 # web app only (offline mode) at http://localhost:5173
-npm run build && npm run server   # unit server with the web app at http://localhost:8080 (prints the first admin password)
+npm run build && npm run server   # unit server with the web app at http://localhost:8080 (no login: opens straight in)
 npm run ci                  # type-check, generated-code check, config check, all tests, all builds
 npm run e2e                 # browser end-to-end tests
 ```
@@ -32,6 +36,9 @@ npm run e2e                 # browser end-to-end tests
 | Command | What it does |
 |---|---|
 | `npm run build:single` | One self-contained offline file: `apps/web/dist-single/index.html` |
+| `npm run release:docs` | Build the offline file, publish it to `docs/index.html` and write its SHA-256 to `docs/RELEASE.txt` |
+| `npm run sbom && npm run notices` | CycloneDX SBOM (`docs/sbom.cdx.json`, needs npm 9.5+) and `THIRD_PARTY_NOTICES.md` |
+| `npm run audit:prod` | Fail on high or critical advisories in production dependencies |
 | `npm run validate:config` | Check the doctrine/config files; run after every edit |
 | `npm run gen:validators` | Re-generate the pre-compiled config validators after editing `config/schema/` |
 | `npm run make-cert -- <name> <ip>` | Local CA + HTTPS certificate for the unit network |
@@ -46,7 +53,7 @@ parashurama/
 │  └─ src/generated/       config validators pre-compiled at build time (no eval at runtime)
 ├─ apps/web/               Vite + TypeScript interface
 │  └─ src/                 app (brief/fight/learn), academy + coach, field guide, audio, what-if, editor, online sync, PWA
-├─ apps/server/            Fastify + built-in SQLite: logins and roles, verification, config versions, readiness, backups
+├─ apps/server/            Fastify + built-in SQLite: name-only sign-in and roles, verification, config versions, readiness, backups
 ├─ deploy/                 HTTPS certificate script, systemd unit
 ├─ docs/                   trainee, field, instructor and admin guides
 ├─ Dockerfile, docker-compose.yml
@@ -67,7 +74,7 @@ Instructors use the in-app **Instructor panel** (validated, versioned on the uni
 | Engine: scoring | Golden test for every rule (D1, C1, R1–R8), incl. area-effect credit for swarms |
 | Engine: fuzz | 200 random drills with random/invalid input: no crashes, scores in range, replays match |
 | Engine: learning, enemy, config, integrity | Mastery model, first-drill plan, weakness targeting, config validation, SHA-256 chain |
-| Server (14) | Auth, rate limiting, roles, CSRF refusal, config versions, independent re-scoring, tamper detection, payload validation, readiness scoping, templates, users, backups, audit, logout |
+| Server (14) | Name-only sign-in, rate limiting, roles, CSRF refusal, config versions, independent re-scoring, tamper detection, payload validation, readiness scoping, templates, users, backups, audit, logout |
 | e2e (Playwright) | Tour, pause-during-tour, real radar click, verified debrief, adapted next drill, field-guide rules, a beginner completing Academy lesson 1 by following the coach |
 
 Also verified manually during development: all four Academy lessons completed by a headless browser that obeyed the coach literally; a full online session against the production server bundle (login, server-verified drill, logout, instructor edit with validation, scripted drill, readiness board, offline reload via the service worker); HTTPS with the generated certificate chain.
@@ -85,3 +92,17 @@ Also verified manually during development: all four Academy lessons completed by
 - The enemy AI is rule-based (explainable), not machine-learned.
 - Offline (no server) mode uses labelled demo operators on the readiness board and keeps history in the browser.
 - Voice callouts use the browser's built-in speech; voices vary by device.
+
+## Air defence gun drills and the UAV strike drill
+
+- **Gun drills (Home → *Control Room · On Ground*, or `?gun`):**
+  - **Control Room** gives fire orders; **On Ground** crews a ZU-23-2 (manual sight) or ZSU-23-4 (radar fire control).
+  - Real exterior ballistics, the live-fire procedure, and a timed reload drill.
+  - Can be played solo, or as a crew over the LAN through the unit server.
+- **UAV strike drill (`?gun=uav`):** an extension beyond the counter-drone PS.
+
+All figures are training values. Words of command are placeholders until the unit's drill wording is supplied. See [docs/GUN_FIELD_CARD.md](docs/GUN_FIELD_CARD.md).
+
+## Licence
+
+Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE). Third-party licences are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

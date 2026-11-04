@@ -18,6 +18,24 @@ const MIGRATIONS: string[] = [
    CREATE INDEX drills_user ON drills(user_id, created_at);
    CREATE TABLE templates(id INTEGER PRIMARY KEY, name TEXT NOT NULL, cfg TEXT NOT NULL, spawns TEXT NOT NULL, author INTEGER REFERENCES users(id), created_at INTEGER NOT NULL);
    CREATE TABLE audit(id INTEGER PRIMARY KEY, at INTEGER NOT NULL, user_id INTEGER, action TEXT NOT NULL, detail TEXT);`,
+  // 2: study cohort for measuring training transfer (adaptive vs fixed-difficulty control group).
+  `ALTER TABLE users ADD COLUMN cohort TEXT NOT NULL DEFAULT 'adaptive' CHECK(cohort IN ('adaptive','control'));`,
+  // 3: lecture library (video files live in <dataDir>/lectures/<file>).
+  `CREATE TABLE lectures(id INTEGER PRIMARY KEY, title TEXT NOT NULL, topic TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', file TEXT NOT NULL, mime TEXT NOT NULL,
+     size INTEGER NOT NULL, duration REAL, sha256 TEXT NOT NULL, author INTEGER REFERENCES users(id), created_at INTEGER NOT NULL);`,
+  // 4: air defence gun drills (Control Room / On Ground), solo or as a LAN crew. actions and record are sealed like drills.
+  `CREATE TABLE gun_drills(id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), created_at INTEGER NOT NULL, game TEXT NOT NULL CHECK(game IN ('ground','control')),
+     crew TEXT, cfg TEXT NOT NULL, actions TEXT NOT NULL, end_tick INTEGER NOT NULL, total INTEGER NOT NULL, client_total INTEGER, verified INTEGER NOT NULL,
+     chain TEXT NOT NULL, flags TEXT NOT NULL, record TEXT NOT NULL, config_version INTEGER);
+   CREATE INDEX gun_drills_user ON gun_drills(user_id, created_at);`,
+  // 5: the 3D field drill ('field'). SQLite cannot change a CHECK, so the table is rebuilt with every row kept.
+  `CREATE TABLE gun_drills5(id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), created_at INTEGER NOT NULL, game TEXT NOT NULL CHECK(game IN ('ground','control','field')),
+     crew TEXT, cfg TEXT NOT NULL, actions TEXT NOT NULL, end_tick INTEGER NOT NULL, total INTEGER NOT NULL, client_total INTEGER, verified INTEGER NOT NULL,
+     chain TEXT NOT NULL, flags TEXT NOT NULL, record TEXT NOT NULL, config_version INTEGER);
+   INSERT INTO gun_drills5 SELECT * FROM gun_drills;
+   DROP TABLE gun_drills;
+   ALTER TABLE gun_drills5 RENAME TO gun_drills;
+   CREATE INDEX gun_drills_user ON gun_drills(user_id, created_at);`,
 ];
 /** Open (or create) the database and apply any pending migrations. */
 export function openDb(dataDir: string): DB {

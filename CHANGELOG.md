@@ -1,5 +1,151 @@
 # Changelog
 
+## Unreleased
+- **Mic on the public website:** without the unit server the mic is an on/off switch: a click (or the ` key) asks the browser for microphone permission and shows MIC ON; another click releases the microphone (MIC OFF). Nothing is sent. `vercel.json` now allows the microphone for the site's own pages (`microphone=(self)`). Push-to-talk on the unit server is unchanged.
+- **First-target coach (field drill):** on the first field drill and on every easy (level 1) drill, a card over the 3D view gives one instruction at a time until the first hostile is down: click to take the gun → **R** load → find the drone and **E** report → number key to identify → wait for FIRE → **Q** lock (fire-control guns) → **F** safety off → hold **left click** to fire on the ◇ lead. It reacts to HOLD FIRE and to non-hostile identifications, then says "Target down!" and leaves.
+- **Fire with the left mouse button** in the 3D field drill (hold to fire; Space still works). Help text, the procedure list and the urban patrol now say "left click".
+- **Faster on low-end PCs, same picture:** shrubs, trees and rocks more than 120 m from the gun (where the camera always stands) are drawn with a simplified mesh (three.js SimplifyModifier, built once at load; the full mesh if it fails). Measured in the L70 field drill: 740k → 501k triangles per frame looking north, 636k → 506k looking east; draw calls about the same; 3D load time unchanged (3.3–3.8 s before, 3.5–3.7 s after, headless).
+- **Push-to-talk radio (multiplayer):** a mic button bottom-left on every screen. Hold it (or the \` key) to talk live to the other stations on your net: the whole unit, or your crew during a LAN crew drill (the net follows the crew code; seats are called "Gun" and "Control Room"). Server: `apps/server/src/voice.ts` (`GET /api/voice/:net/events`, `POST /api/voice/:net`) relays 16 kHz 16-bit mono chunks of about 0.12 s to the other stations at once and stores nothing (no recording, no transcript). Callsigns are anonymous ("Station 4F2"). The server's Permissions-Policy now allows the microphone for its own pages (`microphone=(self)`); the static Vercel copy has no server, so its mic shows OFFLINE. Needs a secure page (localhost or the server's https:// address). Tests: `apps/server/test/voice.test.ts` (relay, no echo, nets kept apart, input limits, sign-in needed); checked live with two browsers on the unit server (13 of 13 chunks heard).
+- **Multiplayer branding on the home screen:** a "MULTIPLAYER · Crew drills over your unit network · push-to-talk radio" badge above Play / Learn.
+- **Drones attack your position (field drill, attack mode):** new optional `GunDrillConfig.attack` (missing = old behaviour, so old drills replay unchanged). Attack drones (FPV, fibre FPV, loitering munition, AI-guided, jet one-way, swarm) now aim at the gun and make a terminal dive onto it; payload droppers bomb it from overhead; recon and surveillance types still stand off. A drone that reaches the gun strikes the position: the drill ends 3 s later and new rule **V4** (doctrine 1.7.0) deducts 40 points. The web turns attack mode on for every 3D field drill. On screen: an "INCOMING DRONE · bearing · range" warning inside 900 m, a blast on the gun, a red flash and "YOUR GUN POSITION WAS HIT", and a radio call. The server accepts `cfg.attack` and re-runs it.
+- **Easier to see:** a distant drone is drawn at its real shape but never smaller than 14 px on screen (no more black dots; the dot is kept only at night), and by day its colours glow slightly so it does not show as a black blot against the sky. Through the sight of every gun, a dashed ring marks each drone in view (the digital sights box them instead).
+- **Simpler gun-drill debrief:** the score with one plain sentence ("3 of 3 hostile drones destroyed", or "A drone hit your gun position"); three numbers (drones destroyed, got through or gun position hit, rounds fired); **Fix these first**: the three rules that lost the most points, with the reason; **Done well** tags; and everything else (points by rule, burst accuracy, radio log) folded under **Full breakdown**.
+- **Gun lobby:** the "On Ground · crew the gun on orders" card is removed; Control Room is now card 3. The drill is still reachable at `?gun=ground` (and for LAN crews), so old records and links keep working.
+- **Lead-only fire control (field drill):** new optional `GunDrillConfig.leadOnly` (missing = a lock lays the gun, as before). With it, a lock tracks the target and computes the lead but never moves the gun: the trainee keeps the mouse and puts the cross on a lead diamond (amber, green "ON LEAD · FIRE" within 0.25°). The web sets it for every 3D field drill; the server accepts it; the expert crew lays on the current fire-control solution by hand (EVIDENCE line in `field.test.ts`). **Q** now locks the drone nearest the cross; Q on a different drone moves the lock to it, Q on the locked drone releases it (before, Q re-locked the previously selected drone).
+- **Sight view fix (field drill):** after an interception the sight view could jump to the sky or the ground: the camera applied the last fire-control solution (kept by the engine after the lock ended) to the next drone in view. The web now uses the solution only while a lock is held, the fire-control sights offset the view only for the locked target, and any offset above 8° is ignored. Through the sight, a ring and a dashed line show where the mouse is steering the gun while the barrel turns.
+- **Fire-control lock fix (field drill):** Q now also releases the lock; the lock drops by itself when its target is destroyed or gone; and a firm mouse pull breaks it (manual takeover). Before, a lock held on a destroyed target and the mouse could no longer move the gun. Each release is a recorded `lock` action with no target, so drills still replay exactly.
+- **New drone models:** detailed FPV attack drone and Shahed-136-type swarm drone, converted by `tools/blender/import_drones.py` (re-oriented, real size, decimated, 512 px JPEG textures) into `models/drone_fpv.glb`, `models/drone_swarm.glb` and `models/drone_male.glb` (Bayraktar TB2 type, 12 m span, for the large military UAV), used by the field drill and the urban patrol in place of the built-in shapes. Both scans are CC BY 4.0; credits in `apps/web/public/models/CREDITS.txt`.
+- **Modernised Shilka fire control:** the ZSU-23-4 sight is now a digital display. A rugged flat screen shows the daylight TV camera (monochrome, high contrast) or the thermal camera; T cycles TV → thermal white-hot → black-hot and Z switches wide and narrow fields of view. It has a digital reticle with 5-mil ticks, video-tracker boxes on every target in view (solid and green once locked, with laser range), tracking status (SEARCH / n IN VIEW / ACQUIRING / LOCKED · FCS SOLUTION), LRF and AZ/EL read-outs, soft keys and the radar scope on the screen.
+- **Upgraded ZU-23-2 (`zu23m`):** a new gun in `config/guns.json` (1.3.0) with an EO/IR suite (day camera, thermal imager, laser rangefinder, digital fire control; detection 5.5 km, a training value), the same ballistics, ammunition and reload as the ZU-23-2, and the ZU model. It uses the same digital display. The home screen's ZU-23-2 card now starts the upgraded gun; the manual-sight ZU-23-2 is still in the gun lobby. The planner never picks `zu23m` on its own, so planned drills are unchanged.
+- **Simpler front door, one decision at a time:** the site opens on a **Play** button, a **Learn** button beside it that opens the classroom library, and a small link to the demo. Play asks only **On Ground or Radar?** On Ground offers the guns, easiest first: **L-70 (easy)** and **Shilka (easy)** field drills (day, clear sky, open country, level 1, sensors working, no stoppages), then the urban patrol and the harder ZU-23-2, with a link to the other gun drills. Radar offers the coached lessons, a quick drill and the real-world missions (a list of four). A breadcrumb shows where you are; Back or Esc steps up one level; "Start here" marks the first drill not yet done. Unit readiness and the classroom library are small links under the first choice. The gun lobby leads with "L70 · easy" and "Shilka · easy", and a first field drill defaults to the easy L-70.
+- **Urban patrol drill** (`?gun=patrol`, lobby: "Urban patrol · drive the ZSU-23-4"): drive a Shilka along a patrol route through a built-up area and defend it against drones that pop up over the rooftops. Own engine module `packages/engine/src/patrol.ts` (deterministic, seed + action log), rules P1–P9 (detect, identify, defeat, never engage civil/friendly/bird, rounds into buildings, Weapon Control Status, driving and civilian traffic, patrol struck, route checkpoints). Buildings block sight, radar lock and rounds; civilian cars drive the main roads and stop for the patrol; FPV hunters home on the vehicle, strike drones on landmarks, observers orbit. Local history only (`parashurama.patrolH`); not yet re-run by the unit server.
+- **Town for the drive:** a 400 × 400 m snippet (old souk, Grand Mosque, the Ruins, boulevard, police station) of the PROJECT REALISM city generator, baked by `tools/city/bake-city.mjs` into `apps/web/public/city/` (about 18 MB: quantised geometry, terrain mask, CC0 textures at 512 px, props kit subset, parked vehicles). Drawn by `apps/web/src/city3d.ts` with one texture-array material.
+- **New gun models** from `Models_New/`: ZSU-23-4 (rigged for traverse, elevation, wheels and tracks; `tools/blender/shilka.py`), ZU-23-2 (decimated 256k → 113k triangles, more detail kept round the gunner, creased shading, repainted olive drab) via `tools/blender/import_guns.py`. The L70 stays the towed procedural model (`tools/blender/guns.py`), now with more detail (muzzle brake, barrel clamps, recuperator, elevating arcs, clip on the feed rails, ready-round racks, rails, boxes); the Bofors scan in `Models_New/` (an L/60 with full shields that blocked the layer's view) is not used.
+- Field audio: engine and track sound; the drone buzz now also takes a plain position list.
+- **Air defence gun drills** (two games on one engine, `?gun`):
+  - **Exterior ballistics:** point-mass RK4 with Mach-dependent drag, standard atmosphere from site met, wind, Coriolis, muzzle velocity by propellant temperature, seeded dispersion, and a fire-control lead solver.
+  - **Guns:** ZU-23-2 with a manual ring sight (the crew sets speed, course and range) and ZSU-23-4 with radar lock and a computed lead. All figures are training values in `config/guns.json`.
+  - **Control Room** (fire-control officer, F1–F8) and **On Ground** (gun detachment, G1–G12). Firing without clearance, after HOLD FIRE, or into a safe arc deducts points.
+  - **Live-fire procedure (L1–L3):** pre-firing gun checks, range safety checks before RANGE CLEAR, sweep for unexploded rounds before RANGE GREEN. A procedure tracker ticks off each step.
+  - **Reload drill (G12):** steps in order against a time standard, plus a Reload drill practice mode.
+  - **Words of command** are placeholders in config until the unit's exact drill wording is supplied. Weapon Control Status and Air Defence Warning use NATO terms.
+- **Crew over the LAN**:
+  - The unit server runs the drill and pushes every tick by Server-Sent Events. Each seat sends its own inputs; an empty seat is played by the AI.
+  - Results are stored per seat, sealed (migration 4, `gun_drills`).
+  - Solo gun drills are re-checked with the AI seat replayed by the server.
+  - `npm run crewload` checks the server clock under many crews.
+- **UAV ground-control-station strike drill** (extension beyond the PS, training model, U1–U9): pre-flight, take-off clearance, corridor and geofence, target lock, CLEAR TO ENGAGE, Master Arm, release on the impact point, damage assessment, SAFE, return and recovery.
+- **Radar drill control measures** (all optional; old drills unchanged):
+  - Weapon Control Status (R13), safe arcs (R14), kill assessment and marking a payload drone's crash site (R15).
+  - An explicit Unknown identification.
+  - Time-to-impact rank in the track list, and the own-UAV schedule in the brief.
+- **Classroom library**: the lecture videos are kept, and notes (PDF, images, text précis) are added, organised by course.
+- **Docs**: `docs/GUN_FIELD_CARD.md` (printable).
+- **Acoustic sensing** (optional, clue only):
+  - Every threat has an `acoustic` signature and hearing range in `config/threats.json` (1.3.0). These are training values.
+  - `config/training.json` (1.4.0) fits the sensor: 3 s to recognise a sound, urban 0.6×, night 1.25×, and a weather factor (rain 0.6×, dust 0.5×).
+  - `acousticClue()` adds an *Acoustic* clue in the drill and a column in the field guide. A fibre-optic FPV, silent on radio, is heard close in.
+  - It never changes a drill or a score. Without the `acoustic` block, nothing changes. Tests: `acoustic.test.ts`.
+- **Multi-trainee load test**: `npm run loadtest` (`scripts/loadtest.ts`).
+  - Signs in demo trainees and submits drills all at once, checks every drill is re-verified and stored, and prints `EVIDENCE loadtest …` lines.
+  - `--url` targets a real LAN server. `apps/server/test/load.test.ts` runs a short version in `npm test`.
+- **Frame-rate report**: the `?fps` meter keeps per-view figures (menus, drill, 3D expanded); click it to copy the report. `npm run fps` measures them in a visible browser window.
+- **Licence**: Apache-2.0 (`LICENSE`, `NOTICE`).
+- **Lecture library**: training videos (MP4, WebM or Ogg) for self-study, opened from the hub's *Lecture library* card or with `?lectures`.
+  - **On the unit server:** instructors and admins upload once and every trainee can watch.
+    - Files are stored in `DATA_DIR/lectures/` with their size and SHA-256.
+    - Uploads stream to disk with a size limit (`LECTURE_MAX_MB`, default 1024).
+    - Playback supports range requests, so seeking works.
+    - Uploads and deletes are audited (database migration 3).
+  - **Offline** (single file or Vercel): lectures are stored in that browser's IndexedDB on that device.
+  - Topic filter, length and size shown, ✓ once watched (saved with the trainee's settings), and an upload progress bar.
+  - New tests: `apps/server/test/lectures.test.ts` and e2e `lectures.spec.ts`, which uses a 2-second test clip.
+- **Phones**:
+  - Drill controls (Sound, Lite, Pause, End drill) sit above the radar instead of covering it.
+  - Identify buttons are in two columns with larger tap targets, and so are the effector and clearance buttons.
+  - The readiness board fits its card. The table scrolls sideways with the operator column pinned.
+  - On the threat library page, the 14 threat tabs and the calculator's type picker are one swipeable row.
+- **Fix:** the threat library page (`docs/threat-library.html`) had a script error after the military types were added. Its tabs, comparison table and calculator were empty. New e2e tests load both judge pages, fail on any script error, and check phone layout.
+- **Lite mode for low-spec laptops**:
+  - On the first scored drill, the app measures the average frame rate over 5 s. Below 25 fps it switches to Lite mode: the 3D view is not auto-opened, the 3D pixel ratio is 1×, and there are no 3D weather particles.
+  - The trainee is told, and can toggle it with the drill's **Lite** button or **L**. `?lite` forces it.
+  - The setting is saved with the trainee's settings.
+- **Encryption at rest**:
+  - Drill records and decision logs are sealed with AES-256-GCM (`apps/server/src/crypto.ts`, format `v1:<iv>:<tag>:<ct>`).
+  - The key comes from `PARASHURAMA_DATA_KEY` or `PARASHURAMA_DATA_KEY_FILE`, which must be outside the data directory.
+  - With `NODE_ENV=production` the server refuses to start without a key. Docker Compose (as a secret) and the systemd unit now supply one.
+  - `npm run migrate:encrypt -w @parashurama/server` encrypts existing rows, and old plaintext rows stay readable.
+  - The admin guide documents BitLocker/LUKS as a second layer.
+- **Signed threat packs** (`*.cuaspack.json`):
+  - Packs are signed with ECDSA P-256 / SHA-256 over canonical JSON. The verifier in `packages/engine/src/pack.ts` uses WebCrypto, so it runs in both the browser and Node.
+  - Trusted public keys live in `config/trust/keys.json`, which ships empty. `npm run pack:keygen` refuses to write the private key inside the repo, and `npm run pack:sign` signs a pack.
+  - `POST /api/packs` (instructor or admin) checks the signature, then validates the merged config, then stores it as a config version. Every attempt is audited.
+  - The offline Instructor panel has "Import signed threat pack", which runs the same checks.
+- **Supply chain**:
+  - `npm run sbom` writes a CycloneDX SBOM to `docs/sbom.cdx.json`. `npm run notices` turns it into `THIRD_PARTY_NOTICES.md` (66 production packages).
+  - `npm run audit:prod` runs in CI.
+  - Upgraded `@fastify/static` 8 → 10.1.6 to fix high-severity advisories (path traversal and route-guard bypass, GHSA-pr96-94w5-mx2h and others). Static serving was re-tested.
+  - `npm run release:docs` publishes `docs/index.html` and writes its SHA-256 to `docs/RELEASE.txt`.
+  - Licensed under Apache-2.0 (`LICENSE`, `NOTICE`; `"license"` set in every package.json).
+- **Control group for measuring training transfer**:
+  - `planNext(H, C, { adaptive: false })` gives fixed level 3, conditions drawn at random from the seed, and no targeting. Adaptive mode is unchanged.
+  - Users have a study `cohort` (`adaptive` or `control`), added by database migration 2. Existing users become `adaptive`.
+  - An instructor or admin sets the cohort in the Users panel or with `PUT /api/users/:id/cohort`.
+  - The web app plans control-group drills accordingly.
+  - The CSV export has a `cohort` column.
+- **Sensor-down fairness flag**:
+  - Each identification records which clues were available: RF detector up, a clear camera picture in range, and healthy radar on that bearing.
+  - The debrief explains when a fault removed a clue, and the drill tape rings that identification in amber.
+  - Points never change, because doctrine expects inference from the remaining clues.
+- **EW collateral (R11)** (effectors 1.2.0, doctrine 1.4.0, scenarios 1.2.0):
+  - New optional `ewRestricted` drill flag, and `ewCollateral` on the jammer and spoofer.
+  - Jamming or spoofing in an EW-restricted area without clearance costs −10 (R11).
+  - "Airport in heavy rain" is EW-restricted.
+  - The brief and mission cards show it.
+  - The threat-library calculator has R11 and R12 options.
+- **Rules of engagement and clearance (R12)** (doctrine 1.3.0, scenarios 1.1.0):
+  - Drills take an optional `roe`: `free` (default, unchanged), `tight` (gun and interceptor need clearance) or `peacetime` (every effector needs clearance, 6 s).
+  - New `req` action: Request clearance, key **C**, with a countdown. Effectors that still need clearance show a lock.
+  - Firing without clearance still takes effect, but costs −40 (R12).
+  - New `roe` skill on the skill fingerprint and readiness board.
+  - The expert ghost and the demo operator ask for clearance as soon as they identify a hostile.
+  - "Airport in heavy rain" now runs under peacetime ROE.
+  - The server accepts `req` actions and `cfg.roe`.
+  - Drills without `roe` record no clearance data, so they are unchanged.
+- **Probability of kill and re-engagement (R10)** (effectors 1.1.0, doctrine 1.2.0):
+  - Effectors have an optional `pk` (hit chance). It is set to 1 for every effector, so behaviour is unchanged until instructors set training values in the Instructor panel's new "Hit chance" column.
+  - Misses are seeded, so replays and the server re-run match.
+  - The first choice is still what gets scored.
+  - R10: a miss that is not followed by another engagement costs −10. If the drone then leaks, R10 is named alongside R8.
+  - On a miss the trainee sees a MISS toast and note, and the drill tape shows a ✕ marker.
+  - After a miss, the expert ghost re-engages with the effector of highest expected value (points × pk).
+- **Civil drones (R9)** (threats 1.2.0, doctrine 1.1.0, training 1.3.0):
+  - New `civil` threat flag and a registered civil drone type.
+  - Rule R9: report and monitor, never engage. Held scores 40; engaged scores 0.
+  - Urban procedural drills include one civil drone, but only when `scenario.civilType` is set, so older configs build identical drills.
+  - The Hold button is now "Hold / report".
+- **Military threat library** (threats 1.1.0, training 1.2.0): seven new types, so all three defeat classes are covered:
+  - Fibre-optic FPV and AI-guided attack drone (no radio and no GNSS, so only an interceptor or gun works).
+  - Jet one-way attack drone (GNSS-guided, very fast).
+  - Payload-drop drone.
+  - Hybrid VTOL ISR drone.
+  - Tactical ISR fixed-wing.
+  - Large military UAV (MALE), with a new `Large` echo size.
+  - New `surveil` motion: the drone flies in, then circles at standoff range.
+  - Every new hostile type is in the procedural pool.
+  - Identify keys now run 1–9 then 0.
+  - The field guide and the threat library page list all 13 types.
+  - `library.test.ts` checks that the expert ghost defeats every hostile type.
+- **Evidence update (19 Oct 2026)**:
+  - `classificationStats()` (false positives, missed hostiles) and `drillsToCsv()` in `packages/engine/src/report.ts`.
+  - Role-scoped, audited `GET /api/export/drills.csv`.
+  - "Download drill history (CSV)" button on the Unit readiness card.
+  - `?fps` frame-rate meter.
+  - Evidence tests: `packages/engine/test/evidence.test.ts` and `apps/server/test/evidence.test.ts`.
+  - `docs/TRACEABILITY.md`.
+- `CLAUDE.md` project context for contributors.
+- **No login screen**: the web app signs in to the built-in `admin` account automatically, and the logout button is hidden. The unit server's sign-in API takes a name only, with no password. A new name creates a trainee account and the same name returns to it. Admins can still pre-create instructor, commander and admin accounts (no password field). `ADMIN_PASSWORD` and the first-start password printout are gone; sign in as `admin`. The `user:add` CLI no longer takes a password.
+
 ## 0.6.0 – One-click narrated demo, phone-ready
 - **Watch the 90-second demo** (Mission Hub, or open the app with `?demo`): a self-running, narrated showcase. A scripted operator plays the *Airport in heavy rain* mission and makes realistic mistakes; captions freeze the action at each key moment (mission, detect, identify, defeat, the 3D chase view), then walk through the debrief, the expert ghost and the commander's readiness board, ending on "Try it yourself" / "Watch again". Demo runs are practice runs: never saved to history and never synced to the unit server. Esc exits at any point.
 - **Phones**: every screen fits a 390 px phone with no sideways scrolling (the briefing layout and skill fingerprint were wider than the screen and forced a zoom-out, which also covered the Begin button); the hub opens at the title; drill controls no longer overlap the clock; a tip explains that full drills are best on a laptop.

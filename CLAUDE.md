@@ -1,0 +1,98 @@
+# PARASHURAMA (SIH26247): project context
+
+AI counter-drone decision trainer. Trains the **recognize → classify → respond** skill, not one specific radar. Smart India Hackathon 2026, PS **SIH26247** (MoD / DSSC), Team Dhwanik_TH06, Team ID 153230. Previously named ARJUNA.
+
+**When the repo contradicts a deck or brief, the repo wins.**
+
+## PS deliverables
+1. A desktop simulator (VR optional) with scripted and procedural scenarios.
+2. Decision-tree scoring of detection time, classification accuracy and the engagement decision.
+3. An AAR dashboard showing individual and unit performance across sessions.
+4. Adaptive difficulty and randomisation, so drills cannot be learned by rote.
+
+Conditions to cover: day/night, degraded sensors, urban/rural, single drones and swarms. Constraint: runs at unit level on ordinary computers.
+
+`docs/TRACEABILITY.md` maps each deliverable to code, tests and measured evidence.
+
+## Stack (never claim anything else)
+- **TypeScript monorepo, v0.6.0.**
+  - `packages/engine`: pure, deterministic simulation, scoring, learning and enemy AI.
+  - `apps/web`: Vite app. Canvas 2D radar, Three.js 3D view, WebXR entry.
+  - `apps/server`: Fastify and `node:sqlite` (WAL), cookie sessions, roles, audit log, backups, HTTPS.
+  - `config/*.json`: the doctrine as data, with JSON Schemas in `config/schema/`.
+- **Not used:** Python, React, FastAPI, PostgreSQL, "CART-tuned" scoring.
+- **Sign-in:** there is no login screen. The web app signs in to the built-in `admin` account automatically. The server's login API takes a name only, with no password.
+
+## Commands
+- `npm run ci`: typecheck, check:generated, validate:config, tests, build, build:single.
+- `npm run e2e`: Playwright. Set `PW_CHROMIUM_PATH` if a local Chromium is needed.
+- `npm run dev` runs the web app only (offline). `npm run build && npm run server` runs it with the unit server on :8080.
+- **Vercel:** `vercel.json` at the repo root builds from source (`node scripts/vercel-build.mjs` → `vercel-out/`); the Vercel project's Root Directory must be the repo root. It also serves `docs/index.html` as `/offline.html`. The 3D field drill's models, skies, textures and sounds are in `apps/web/public/` (`models/`, `assets/`, `audio/`) and ship with the build (about 70 MB); raw scans used only by the Blender build live in `tools/blender/src-assets/` (git-ignored; `node scripts/fetch-assets.mjs`). Keep the unhashed 3D files out of the immutable cache rule in `vercel.json`, and keep `blob:` in the CSP (the glTF loader needs it).
+- **Updating `docs/index.html`** (the one-file offline copy, also on GitHub Pages): run `npm run release:docs`. It builds the single file, drops the manifest and icon links, and writes the SHA-256 to `docs/RELEASE.txt`. In that copy the 3D drill uses plain shapes and generated sound.
+- **Supply chain:** run `npm run audit:prod` (CI fails on high or critical) and `npm run sbom && npm run notices`. Licence: Apache-2.0 (`LICENSE`, `NOTICE`).
+- **Capacity checks:** `npm run loadtest` (unit server, many trainees; `--url` for a real server), `npm run crewload` (LAN crew drills at the real clock) and `npm run fps` (frame rate per view, visible browser; needs `npm run build:single`).
+- `apps/web/index.html` is the Vite **source** entry page (it loads `/src/main.ts`). Never overwrite it with a built bundle.
+- **App URL flags:** `?demo`, `?reset`, `?nohome`, `?instructor` (offline editor), `?fps` (frame-rate meter), `?lite` (force Lite mode), `?lectures`, `?gun` (gun drills lobby), `?gun=ground|control|uav|patrol`.
+
+## Engine rules to preserve
+- **Determinism.** A drill is fully defined by its seed and its time-stamped decision log. Never use `Math.random()` in the engine; use `mulberry` and `hash2` from `util.ts`. The server re-runs every drill, and the log is SHA-256 chained.
+- **Compatibility.** New config fields are optional, with defaults that reproduce today's behaviour (follow the `weather?` pattern). Golden tests in `scoring.test.ts` are never edited; add new ones instead.
+- **Config changes.** Edit the schema first, run `npm run gen:validators`, update `config.ts` types, add cross-file checks to `validate.ts`, and bump the file's `version`.
+- **Scoring changes.** Each one needs a rule id in `doctrine.json` `rules`, and each point change pushes that rule id and a plain sentence into `why` in `scoreRun()`. The expert ghost (`expert.ts`) must stay doctrine-optimal; `scenarios.test.ts` checks it wins every mission.
+- **Decision classes** (`decisionClass()`):
+  - radio link → `rfLinked` (jam)
+  - no radio, GNSS → `gnssOnly` (spoof)
+  - neither → `autonomous` (interceptor)
+- **Points.** Each contact is scored out of Detect 30 + Identify 30 + Defeat 40. Pass mark 75; certified mastery ≥ 80%, developing 55–80%.
+- **The doctrine tree is rule-based, not machine-learned.** This is deliberate: it is explainable and needs no dataset.
+- **Wording.** The code calls IFF the "Friendly check".
+- **Rules added after v0.6.0** (all optional, so old drills replay unchanged):
+  - R9: civil drone, report but never engage.
+  - R10: re-engage after a miss. Effector `pk` defaults to 1.
+  - R11: EW collateral in `ewRestricted` areas.
+  - R12: fire only with clearance under `roe` `tight` or `peacetime`. The new `req` action requests clearance, and there is a new `roe` skill.
+  - Sensor-down fairness note (`idAvail`): explains a missing clue but never changes points.
+  - Acoustic sensing: optional `acoustic` per threat and in `training.json`; `acousticClue()` is a clue only and never changes a drill or a score.
+  - R13 Weapon Control Status (`DrillConfig.wcs`), R14 safe arcs (`safeArcs`, gun only), R15 kill assessment (`killAssess`; `bda` action; threat `payload` flag → mark crash site). Explicit `unknown` identification (10 points, upgradable, excluded from calibration). The enemy AI sets these from its own random stream (`seed ^ 0xadc0`) so existing conditions are unchanged.
+- **Gun and UAV drills** (separate engine modules, records and routes; never mixed into `DB.H`, `SKILLS`, `planNext` or `/api/drills`):
+  - `ballistics.ts` (RK4 point mass), `gun.ts` (shared drill: orders, WCS, ADW stand-to, safe arcs, reload steps, live-fire checks, UXO), `gunai.ts` (expert control room and crew), `gunscore.ts` (G1–G12 On Ground, F1–F8 Control Room, L1–L3 live fire; `GUN_SKILLS`, `gunMastery`), `gunplan.ts`, `gcs.ts` (UAV strike drill, U1–U9).
+  - Data: `config/guns.json` (`guns`, `ammo`, `targets`, `procedure`, `orders`, `lfx`, `uav`), all training values or placeholders; optional in `Config` (`gunsOf()` falls back).
+  - Server: `apps/server/src/gun.ts` (`/api/gun/*`, `/api/crews/*` with Server-Sent Events; migration 4 `gun_drills`). Solo drills are re-run with the AI seat replayed by the server; crew actions are stamped with the sender's seat.
+  - Web: `apps/web/src/gun.ts`, `gcs.ts`. Gun history under `parashurama.gunH`, UAV under `parashurama.uavH`.
+  - Words of command are placeholders; official Indian Army drill manuals are restricted. Never present them as exact. WCS / ADW are NATO terms.
+- **Push-to-talk radio**: `apps/web/src/voice.ts` (mic bottom-left, \` key; `setVoiceNet()` from `gun.ts` for crew nets) and `apps/server/src/voice.ts` (relay only, nothing stored; nets `unit` and `crew-<code>`). Keep `microphone=(self)` in the server's Permissions-Policy.
+- **Field drill attack mode** (`GunDrillConfig.attack`, optional; the web sets it): attack drones dive on the gun (`GunTarget.dive`), and `E.struck` ends the drill; V4 deducts `STRUCK_PTS` (40). The upgraded ZU-23-2 is a separate gun, `zu23m` (EO sight, `model: zu23`); the planner's gun lists leave it out. `GunDrillConfig.leadOnly` (optional; the web sets it): a lock gives the lead only and never lays the gun; `gunCrewAI` then lays on `sightSolution()` itself. The digital fire-control display (`shilkaMfd` in `field3d.ts`) is used for `zsu234` and `zu23m`. Drone scans: `tools/blender/import_drones.py` → `models/drone_fpv.glb`, `models/drone_swarm.glb` and `models/drone_male.glb` (all CC BY 4.0, credits in `apps/web/public/models/CREDITS.txt`). Only use scans whose licence allows redistribution (CC BY / CC0); the Sketchfab Standard licence does not.
+- **Urban patrol drill** (separate module, records and keys; never mixed into the gun or radar drills):
+  - Engine `patrol.ts` (vehicle on the move, stabilised turret, radar lock, building occlusion of sight and rounds, civilian traffic, P1–P9 scoring, `patrolAI` expert). The world (`PatrolWorld`: building boxes, walls, posts, roads, lanes, landmarks) is engine input from `apps/web/public/city/city.json`.
+  - Web `apps/web/src/patrol.ts` (3D view, HUD, minimap) and `city3d.ts`. History under `parashurama.patrolH`. Automation handle `window.PARA_PATROL`.
+  - City package: `node tools/city/bake-city.mjs <path to Project-Reality>` regenerates `apps/web/public/city/` (seed 1337, area −200…200 m). Gun models from `Models_New/`: `tools/blender/shilka.py` (ZSU-23-4), `tools/blender/import_guns.py --only zu23` (ZU-23-2). The L70 is built by `tools/blender/guns.py --only l70` (the Bofors scan is not used: it is an L/60 whose shields block the layer's view).
+  - Vehicle values (`VEH`) are training values. The server does not re-run patrol drills yet.
+- **Planner options and security features:**
+  - Control-group planning: `planNext(H, C, { adaptive: false })`, with a `cohort` per user.
+  - Signed threat packs: `pack.ts`, `config/trust/keys.json`, `POST /api/packs`.
+  - Encryption at rest of drill records: `apps/server/src/crypto.ts`. The key comes from `PARASHURAMA_DATA_KEY` or `PARASHURAMA_DATA_KEY_FILE`, and is required when `NODE_ENV=production`.
+  - Lite mode: `apps/web/src/lite.ts`.
+  - Lecture library: `apps/web/src/lectures.ts` (server API online, IndexedDB offline) and `apps/server/src/lectures.ts` (`/api/lectures`, files in `DATA_DIR/lectures/`, range streaming).
+- **Threat library** (`config/threats.json`). Training values only, not equipment specifications.
+  - The original six: recon, fpv, loiter, swarm, friendly, bird.
+  - Military types added since: fibre-optic FPV, AI-guided attack, jet one-way attack, payload dropper, hybrid VTOL ISR, tactical ISR fixed-wing, large MALE UAV.
+  - `surveil` motion: the drone flies in, then circles at standoff range.
+  - Identify keys are 1–9 then 0 (the first 10 types); the rest are click-only.
+
+## Honesty rules (anything judges see)
+- Use only measured numbers. Get them from the `EVIDENCE …` lines printed by `npm test`, never from memory. Never invent prices.
+- Mark vendor features as "not stated publicly", not "missing".
+- Simulated scores are training measures, not operational effectiveness.
+- Use DPDP-safe demo operators only, with no real names.
+- The research spreadsheet is internal: never link it from this repo.
+
+## Working preferences
+- Make minimum, declared edits. Preserve existing logic and config values unless the change is declared.
+- Work in short, iterative steps with plain-language summaries.
+- Deliverables for the jury are files (PDF/DOCX/HTML).
+
+## Open items
+- Record `npm run fps` (or `?fps` report) results from the presentation laptop in `docs/TRACEABILITY.md`.
+- VR: the WebXR entry has never been tried on a headset. Say "WebXR-ready, headset trial next".
+- DSSC review of the doctrine values, the threat values, the acoustic values, and the gun, ammunition, reload, live-fire and UAV values in `guns.json`; replace the placeholder words of command with the unit's drill wording.
+- Load test over a real LAN (`npm run loadtest -- --url …`) and a two-PC crew drill on the unit network. The single-machine tests are done (see TRACEABILITY).

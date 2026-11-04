@@ -5,7 +5,7 @@ import { mulberry } from './util';
 
 export const SKILLS: [string, string][] = [
   ['detect', 'Detection speed'], ['identify', 'Identification'], ['calib', 'Calibration'], ['defeat', 'Defeat choice'],
-  ['timing', 'Timing'], ['night', 'Night'], ['swarm', 'Swarm'], ['degraded', 'Faulty sensors'], ['weather', 'Bad weather'],
+  ['timing', 'Timing'], ['night', 'Night'], ['swarm', 'Swarm'], ['degraded', 'Faulty sensors'], ['weather', 'Bad weather'], ['roe', 'Rules of engagement'],
 ];
 export type Observations = Record<string, boolean[]>;
 export type Mastery = Record<string, number>;
@@ -44,7 +44,7 @@ export function observe(E: Engine, sc: ContactScore[]): Observations {
     if (s.src.idCls) {
       const ok = s.src.idCls === c.type;
       o.identify.push(ok);
-      o.calib.push(ok ? (s.src.idConf ?? 0) >= certainP : (s.src.idConf ?? 1) <= likelyP);
+      if (s.src.idCls !== 'unknown') o.calib.push(ok ? (s.src.idConf ?? 0) >= certainP : (s.src.idConf ?? 1) <= likelyP);
     } else if (!s.missed) o.identify.push(false);
     if (Ty.hostile) {
       if (s.e0 && s.e0.eff !== 'hold') { o.defeat.push(s.Fbase >= 34); o.timing.push(isFinite(s.e0.tti) ? s.e0.tti >= E.C.doctrine.defeat.modifiers.lateEngagementSec : true); }
@@ -55,6 +55,7 @@ export function observe(E: Engine, sc: ContactScore[]): Observations {
     if (Ty.motion === 'swarm') o.swarm.push(good);
     if (E.cfg.fault !== 'none') o.degraded.push(good);
     if (E.cfg.weather && E.cfg.weather !== 'clear') o.weather.push(good);
+    if (Ty.hostile && s.e0 && s.e0.eff !== 'hold' && (E.cfg.roe ?? 'free') !== 'free') o.roe.push(s.e0.cleared !== false);
   }
   const n = E.C.training.learning.maxObsPerDrill;
   for (const k of Object.keys(o)) {
@@ -71,7 +72,7 @@ export function calStats(sc: ContactScore[], C: Config = getConfig()): CalStats 
   const cal: CalStats = {};
   for (const lv of C.doctrine.confidence) cal[lv.k] = [0, 0];
   for (const s of sc) {
-    if (!s.src.idCls || s.src !== s.c) continue;
+    if (!s.src.idCls || s.src.idCls === 'unknown' || s.src !== s.c) continue;
     const lv = C.doctrine.confidence.find((x) => Math.abs(x.p - (s.src.idConf ?? -1)) < 0.01);
     if (!lv) continue;
     cal[lv.k][0]++;
@@ -95,7 +96,8 @@ export function demoHistory(C: Config = getConfig()): SessionRecord[] {
   for (let i = 0; i < 5; i++) {
     const obs: Observations = {};
     const P: Record<string, number> = { detect: 0.62 + i * 0.05, identify: 0.6 + i * 0.04, calib: 0.42, defeat: 0.5 + i * 0.03, timing: 0.62, night: 0.3 + i * 0.03, swarm: 0.26 + i * 0.03, degraded: 0.52, weather: 0.4 + i * 0.03 };
-    for (const [k] of SKILLS) { obs[k] = []; const n = ['night', 'swarm', 'degraded', 'weather'].includes(k) ? 4 : 6; for (let j = 0; j < n; j++) obs[k].push(r() < P[k]); }
+    // Skills without a demo probability (e.g. roe) get no observations and no random draws, so the demo history stays identical.
+    for (const [k] of SKILLS) { obs[k] = []; if (!(k in P)) continue; const n = ['night', 'swarm', 'degraded', 'weather'].includes(k) ? 4 : 6; for (let j = 0; j < n; j++) obs[k].push(r() < P[k]); }
     const attn = [0.12, 0.11, 0.1, 0.1, 0.09, 0.1, 0.09, 0.08, 0.08, 0.07, 0.02, 0.04].map((v) => v * (0.85 + r() * 0.3));
     const thr = new Array(12).fill(0);
     for (let j = 0; j < 6; j++) thr[Math.floor(r() * 12)]++;

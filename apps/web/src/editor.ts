@@ -1,6 +1,6 @@
 // Instructor panel: edit doctrine/weapons/pass marks with live validation, build scripted drills, manage users (admin).
 // Online: saves to the unit server (versioned). Offline: saves in this browser (add ?instructor to the URL).
-import { defaultConfig, getConfig, type Config } from '@parashurama/engine';
+import { applyPack, defaultConfig, getConfig, verifyPack, type Config } from '@parashurama/engine';
 import { app, on } from './app';
 import { EFF, EFF_ORDER, ORDER, TYPES } from './cfg';
 import { $ } from './dom';
@@ -29,7 +29,7 @@ function renderTemplatesCard() {
   card.querySelectorAll('[data-tpl]').forEach((b: any) => (b.onclick = () => startTemplate(templates[+b.dataset.tpl])));
 }
 function weaponsForm() {
-  return `<table><tr><th>Weapon</th><th>Reach (m)</th><th>Min (m)</th><th>Delay (s)</th><th>Stock</th></tr>${EFF_ORDER.map((k) => { const e = draft.effectors.effectors[k]; return `<tr><td>${e.label}</td><td>${num(`effectors.effectors.${k}.range`, e.range, 50)}</td><td>${num(`effectors.effectors.${k}.min`, e.min, 50)}</td><td>${num(`effectors.effectors.${k}.delay`, e.delay, 0.5, 0.5)}</td><td>${e.stock != null ? num(`effectors.effectors.${k}.stock`, e.stock) : '∞'}</td></tr>`; }).join('')}</table>`;
+  return `<table><tr><th>Weapon</th><th>Reach (m)</th><th>Min (m)</th><th>Delay (s)</th><th>Stock</th><th>Hit chance (0–1)</th></tr>${EFF_ORDER.map((k) => { const e = draft.effectors.effectors[k]; return `<tr><td>${e.label}</td><td>${num(`effectors.effectors.${k}.range`, e.range, 50)}</td><td>${num(`effectors.effectors.${k}.min`, e.min, 50)}</td><td>${num(`effectors.effectors.${k}.delay`, e.delay, 0.5, 0.5)}</td><td>${e.stock != null ? num(`effectors.effectors.${k}.stock`, e.stock) : '∞'}</td><td>${num(`effectors.effectors.${k}.pk`, e.pk ?? 1, 0.05, 0)}</td></tr>`; }).join('')}</table>`;
 }
 function doctrineForm() {
   const cls = ['rfLinked', 'gnssOnly', 'autonomous'] as const, names = { rfLinked: 'Radio-controlled', gnssOnly: 'GNSS-guided, no radio', autonomous: 'Neither' };
@@ -58,8 +58,8 @@ function templatesForm() {
 }
 async function usersForm() {
   const u = await api('/api/users').catch(() => ({ users: [] }));
-  return `<table><tr><th>Username</th><th>Name</th><th>Role</th><th>Unit</th></tr>${u.users.map((x: any) => `<tr><td>${x.username}</td><td>${x.name}</td><td>${x.role}</td><td>${x.unit}</td></tr>`).join('')}</table>
-   <div class="row"><label>Username<input id="uUser"></label><label>Name<input id="uName"></label><label>Role<select id="uRole"><option>trainee</option><option>instructor</option><option>commander</option><option>admin</option></select></label><label>Temporary password<input id="uPass" type="password"></label></div>
+  return `<table><tr><th>Username</th><th>Name</th><th>Role</th><th>Unit</th><th>Study group</th></tr>${u.users.map((x: any) => `<tr><td>${x.username}</td><td>${x.name}</td><td>${x.role}</td><td>${x.unit}</td><td><select data-cohort="${x.id}"><option value="adaptive" ${x.cohort !== 'control' ? 'selected' : ''}>Adaptive</option><option value="control" ${x.cohort === 'control' ? 'selected' : ''}>Control (fixed level)</option></select></td></tr>`).join('')}</table>
+   <div class="row"><label>Username<input id="uUser"></label><label>Name<input id="uName"></label><label>Role<select id="uRole"><option>trainee</option><option>instructor</option><option>commander</option><option>admin</option></select></label><label>Study group<select id="uCohort"><option value="adaptive">Adaptive</option><option value="control">Control (fixed level)</option></select></label></div>
    <div class="edActions"><button class="solid" id="uAdd">Create user</button><button id="bkBtn">Back up database now</button></div>`;
 }
 async function open() {
@@ -74,7 +74,7 @@ async function open() {
       <div class="card"><div class="cardHead"><h3>Scripted drills</h3><span>exams and set scenarios</span></div><div class="edForm" id="tplForm">${templatesForm()}</div></div>
       ${canAdmin() ? `<div class="card" style="grid-column:1/-1"><div class="cardHead"><h3>Users</h3><span>admin only</span></div><div class="edForm" id="usersForm">${await usersForm()}</div></div>` : ''}
     </div>
-    <div class="edActions"><button class="solid" id="edSave">Validate and save settings</button><button id="edValidate">Validate only</button><button id="edReset">Reset to defaults</button><span class="edMsg" id="edMsg"></span></div></div>`;
+    <div class="edActions"><button class="solid" id="edSave">Validate and save settings</button><button id="edValidate">Validate only</button><button id="edReset">Reset to defaults</button><label class="smallBtn fileBtn">Import signed threat pack<input type="file" id="edPack" accept=".json,application/json" hidden></label><span class="edMsg" id="edMsg"></span></div></div>`;
   document.body.appendChild(o);
   o.addEventListener('input', (e: any) => { const p = e.target.dataset.path; if (p) set(draft, p, e.target.value === '' ? 0 : +e.target.value); });
   $('#edClose').onclick = () => o.remove();
@@ -87,6 +87,24 @@ async function open() {
   };
   $('#edSave').onclick = async () => { if (await validate()) await save(draft, 'edited in instructor panel').catch((e) => ($('#edMsg').textContent = 'Save failed: ' + e.message)); };
   $('#edReset').onclick = async () => { if (ctx.online) await save(defaultConfig, 'reset to defaults'); else { localStorage.removeItem(LOCAL_CFG); $('#edMsg').innerHTML = '<b class="good">Defaults restored</b> <button class="smallBtn" id="edReload">Reload</button>'; $('#edReload').onclick = () => location.reload(); } };
+  // Signed threat pack (*.cuaspack.json): signature checked against the bundled trusted keys, then the merged config is validated.
+  $('#edPack').onchange = async (e: any) => {
+    const f = e.target.files?.[0]; e.target.value = ''; if (!f) return;
+    let pack: any;
+    try { pack = JSON.parse(await f.text()); } catch { $('#edMsg').innerHTML = '<b class="bad">Not a valid JSON file.</b>'; return; }
+    try {
+      if (ctx.online) { const r = await api('/api/packs', { method: 'POST', body: JSON.stringify(pack) }); $('#edMsg').innerHTML = `<b class="good">Pack installed as config v${r.version} ✓</b> <button class="smallBtn" id="edReload">Reload to apply</button>`; }
+      else {
+        const v = await verifyPack(pack);
+        if ('error' in v) { $('#edMsg').innerHTML = `<b class="bad">Pack rejected:</b> ${v.error}`; return; }
+        const merged = applyPack(getConfig(), pack); const { validateConfig } = await import('./validator'); const r = validateConfig(merged);
+        if (!r.ok) { $('#edMsg').innerHTML = `<b class="bad">Signed, but the config is invalid:</b><ul>${r.errors.map((x) => `<li>${x}</li>`).join('')}</ul>`; return; }
+        localStorage.setItem(LOCAL_CFG, JSON.stringify(merged));
+        $('#edMsg').innerHTML = `<b class="good">Pack ${pack.meta.id} v${pack.meta.version} from ${pack.meta.issuer} verified and saved ✓</b> <button class="smallBtn" id="edReload">Reload to apply</button>`;
+      }
+      $('#edReload').onclick = () => location.reload();
+    } catch (err: any) { $('#edMsg').innerHTML = `<b class="bad">Pack rejected:</b> ${err.body?.error || err.message}`; }
+  };
   const tf = $('#tplForm');
   tf.addEventListener('click', async (e: any) => {
     if (e.target.dataset.del != null) { e.target.closest('tr').remove(); }
@@ -108,9 +126,14 @@ async function open() {
     }
   });
   const uf = $('#usersForm');
+  if (uf) uf.addEventListener('change', async (e: any) => {
+    const id = e.target.dataset?.cohort; if (!id) return;
+    try { await api(`/api/users/${id}/cohort`, { method: 'PUT', body: JSON.stringify({ cohort: e.target.value }) }); toast('Study group saved. It applies from the trainee\'s next drill.'); }
+    catch (err: any) { toast(err.body?.error || 'Could not save the study group'); }
+  });
   if (uf) uf.addEventListener('click', async (e: any) => {
     if (e.target.id === 'uAdd') {
-      try { await api('/api/users', { method: 'POST', body: JSON.stringify({ username: $('#uUser').value.trim(), name: $('#uName').value.trim(), role: $('#uRole').value, password: $('#uPass').value }) }); uf.innerHTML = await usersForm(); toast('User created'); }
+      try { await api('/api/users', { method: 'POST', body: JSON.stringify({ username: $('#uUser').value.trim(), name: $('#uName').value.trim(), role: $('#uRole').value, cohort: $('#uCohort').value }) }); uf.innerHTML = await usersForm(); toast('User created'); }
       catch (err: any) { toast(err.body?.error || 'Could not create user'); }
     }
     if (e.target.id === 'bkBtn') { const r = await api('/api/admin/backup', { method: 'POST' }).catch(() => null); toast(r ? `Backup saved: ${r.file}` : 'Backup failed'); }

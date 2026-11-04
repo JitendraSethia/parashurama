@@ -1,6 +1,6 @@
-import { getConfig, ticks, isEffective, weatherFx, type Config } from './config';
+import { acousticRange, cameraRange, getConfig, ticks, isEffective, weatherFx, type Config } from './config';
 import { buildScenario } from './scenario';
-import type { Action, Contact, DrillConfig, Engine, Spawn } from './types';
+import { UNKNOWN, type Action, type Contact, type DrillConfig, type Engine, type Spawn } from './types';
 import { clamp, hash2, mulberry, brgOf } from './util';
 
 export function createEngine(cfg: DrillConfig, C: Config = getConfig(), spawns?: Spawn[]): Engine {
@@ -29,6 +29,7 @@ function spawnContact(E: Engine, sp: Spawn, idx: number): void {
     c.x = Math.sin(a) * c.orad; c.y = -Math.cos(a) * c.orad;
   } else if (Ty.motion === 'wander') c.hdg = r() * 6.28;
   else if (Ty.motion === 'approachHover') { const [h0, h1] = Ty.hoverRangeM ?? [800, 1100]; c.hoverR = h0 + r() * (h1 - h0); }
+  else if (Ty.motion === 'surveil') { const [o0, o1] = Ty.orbitRadiusM ?? [1400, 1900]; c.orad = o0 + r() * (o1 - o0); }
   E.contacts.push(c);
 }
 
@@ -48,6 +49,11 @@ function moveContact(E: Engine, c: Contact, swarm: Contact[]): void {
   }
   if (Ty.motion === 'orbit') { c.oc += (c.v / c.orad) * dt; c.x = Math.sin(c.oc) * c.orad; c.y = -Math.cos(c.oc) * c.orad; c.hdg = c.oc + Math.PI / 2; return; }
   const d = Math.hypot(c.x, c.y);
+  // Surveillance UAV: flies in, then circles the asset at standoff range to watch (hover = on station, so no time to impact).
+  if (Ty.motion === 'surveil' && (c.orbit || d <= c.orad)) {
+    if (!c.orbit) { c.orbit = true; c.hover = true; c.orad = d; c.oc = Math.atan2(c.x, -c.y); }
+    c.oc += (c.v / c.orad) * dt; c.x = Math.sin(c.oc) * c.orad; c.y = -Math.cos(c.oc) * c.orad; c.hdg = c.oc + Math.PI / 2; return;
+  }
   if (Ty.motion === 'approachHover' && d <= c.hoverR) {
     c.hover = true; c.x += Math.sin(t * 0.5 + c.wob) * 0.8 * dt; c.y += Math.cos(t * 0.4 + c.wob) * 0.6 * dt; return;
   }
@@ -79,6 +85,33 @@ function paintProb(E: Engine, c: Contact, b: number): number {
   return p * weatherFx(E.C, E.cfg.weather).radar;
 }
 
+/** Does this effector need clearance under the drill's ROE? 'free' (or no profile) never does. */
+export function needsClearance(E: Engine, eff: string): boolean {
+  const roe = E.cfg.roe ?? 'free';
+  if (roe === 'free') return false;
+  return E.C.doctrine.roe?.[roe]?.needsClearance.includes(eff) ?? false;
+}
+/** Is the contact cleared for this effector right now? */
+export function isCleared(E: Engine, c: Contact, eff: string): boolean {
+  return !needsClearance(E, eff) || (c.clrAt != null && E.tick >= c.clrAt);
+}
+
+/** What the operator could rely on right now: RF detector up, a clear camera picture in range, radar healthy on this bearing. */
+export function clueAvailability(E: Engine, c: Contact): { rf: boolean; cam: boolean; radarOk: boolean } {
+  const S = E.C.training.sim, f = E.cfg.fault;
+  const inCam = Math.hypot(c.x, c.y) < cameraRange(E.C, E.cfg.time, E.cfg.weather);
+  const dd = Math.abs(((brgOf(c.x, c.y) - E.cfg.faultSector + 540) % 360) - 180);
+  return { rf: f !== 'rf', cam: f !== 'eo' && inCam, radarOk: f !== 'radar' || dd >= S.radarFaultHalfWidthDeg };
+}
+
+/** Acoustic clue: what the acoustic sensor hears from this contact, and whether it is within hearing range now.
+ *  Null when no acoustic sensor is fitted. Pure: it never changes the drill, so replays and scores are unaffected. */
+export function acousticClue(E: Engine, c: Contact): { sig: string; rangeM: number; heard: boolean } | null {
+  const r = acousticRange(E.C, c.type, E.cfg);
+  if (r == null) return null;
+  return { sig: E.C.threats.threats[c.type].acoustic!.sig, rangeM: r, heard: Math.hypot(c.x, c.y) < r };
+}
+
 export function inReach(c: Contact, eff: string, C: Config = getConfig()): boolean {
   const e = C.effectors.effectors[eff];
   const d = Math.hypot(c.x, c.y);
@@ -90,7 +123,18 @@ function applyAction(E: Engine, a: Action): void {
   if (!c) return;
   if (a.k === 'track') { if (c.trackTick == null && c.state === 'live') c.trackTick = E.tick; return; }
   if (a.k === 'id') {
-    if (c.trackTick != null && c.idTick == null && a.cls && E.C.threats.threats[a.cls] && a.conf != null) { c.idTick = E.tick; c.idCls = a.cls; c.idConf = a.conf; }
+    // "Unknown" is a legitimate first answer; an Unknown can later be identified as a real class.
+    const real = !!a.cls && !!E.C.threats.threats[a.cls], unk = a.cls === UNKNOWN;
+    if (c.trackTick != null && (c.idTick == null || (c.idCls === UNKNOWN && real)) && (real || unk) && a.conf != null && c.state === 'live') { c.idTick = E.tick; c.idCls = a.cls!; c.idConf = a.conf; c.idAvail = clueAvailability(E, c); }
+    return;
+  }
+  if (a.k === 'bda') { if (E.cfg.killAssess && c.state === 'neutralised' && c.bdaTick == null) c.bdaTick = E.tick; return; }
+  if (a.k === 'req') {
+    // Request clearance to engage (ROE). Only after identification, once per contact.
+    if (c.idTick != null && c.clrReq == null && c.state === 'live') {
+      const roe = E.cfg.roe ?? 'free', prof = roe === 'free' ? undefined : E.C.doctrine.roe?.[roe];
+      c.clrReq = E.tick; c.clrAt = E.tick + ticks(E.C, prof?.clearanceSec ?? 0);
+    }
     return;
   }
   if (a.k !== 'eng' || c.idTick == null || c.state !== 'live' || !a.eff) return;
@@ -103,8 +147,13 @@ function applyAction(E: Engine, a: Action): void {
   const ok = isEffective(Ty, ef);
   const ratio = E.C.doctrine.defeat.modifiers.priorityRatio;
   const pm = Ty.hostile && E.contacts.some((o) => o !== c && o.state === 'live' && o.trackTick != null && E.C.threats.threats[o.type].hostile && o.effectAt == null && tti(o, E.C) < tt * ratio);
-  c.engs.push({ tick: E.tick, eff: a.eff, effective: ok, range: rng, tti: tt, priorityMiss: pm });
-  if (ok) {
+  // Probability of kill: seeded, so replays and the server re-run see the same misses. pk = 1 (default) never draws.
+  const pk = ef.pk ?? 1;
+  const hit = pk >= 1 || hash2(c.id * 131 + E.cfg.seed, E.tick) < pk;
+  // Under a restrictive ROE, record whether this shot was cleared. The effect still happens; the penalty is in scoring (R12).
+  const roeOn = (E.cfg.roe ?? 'free') !== 'free';
+  c.engs.push({ tick: E.tick, eff: a.eff, effective: ok, range: rng, tti: tt, priorityMiss: pm, ...(ok && !hit ? { miss: true } : {}), ...(roeOn ? { cleared: isCleared(E, c, a.eff) } : {}), ...(E.cfg.safeArcs ? { brg: brgOf(c.x, c.y) } : {}) });
+  if (ok && hit) {
     c.effectAt = E.tick + ticks(E.C, ef.delay); c.effectBy = a.eff;
     if (ef.areaRadiusM && Ty.motion === 'swarm') {
       for (const o of E.contacts) {
